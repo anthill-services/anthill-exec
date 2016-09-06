@@ -145,7 +145,7 @@ class FunctionsCallModel(Model):
     def __init__(self, functions, cache):
 
         self.call_timeout = options.js_call_timeout
-        self.compile_pool = ProcessPoolExecutor(max_workers=options.js_compile_workers)
+        self.compile_pool = ProcessPoolExecutor(max_workers=(options.js_compile_workers or None))
 
         self.cache = cache
         self.functions = functions

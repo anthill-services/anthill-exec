@@ -69,7 +69,7 @@ define("cache_max_connections",
 # JS
 
 define("js_compile_workers",
-       default=None,
+       default=0,
        help="Maximum worker processes to execute compilation operations (default = cpu count)",
        type=int)
 
