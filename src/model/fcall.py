@@ -1,14 +1,16 @@
 
-from tornado.gen import coroutine, Return
+from tornado.gen import coroutine, Return, Future, with_timeout, TimeoutError
 from tornado.ioloop import IOLoop
 from common.model import Model
+from common.access import InternalError
 from expiringdict import ExpiringDict
+from functools import wraps
+import datetime
+
 from concurrent.futures import ProcessPoolExecutor
 
 from common.options import options
-from common import ElapsedTime
-
-import pickle
+import logging
 
 # pip install -e git://github.com/brokenseal/PyV8-OS-X#egg=pyv8
 
@@ -24,14 +26,71 @@ class APIError(Exception):
         return str(self.code) + ": " + self.message
 
 
-class APIBase(object):
-    def __init__(self):
-        self.exception = None
+class Deferred(object):
+    def __init__(self, obj):
+        self.on_resolve = None
+        self.on_reject = None
+        self.obj = obj
 
-    def error(self, code, message):
-        exception = APIError(code, message)
-        self.exception = exception
-        raise exception
+    def done(self, func):
+        self.on_resolve = func
+        return self
+
+    def fail(self, func):
+        self.on_reject = func
+        return self
+
+    def resolve(self, *args):
+        if self.obj.active and self.on_resolve:
+            self.on_resolve(*args)
+
+    def reject(self, *args):
+        if self.obj.active and self.on_reject:
+            self.on_reject(*args)
+
+
+def deferred(f):
+
+    def wrapped(self, *args):
+        d = Deferred(self)
+
+        def done(f):
+            exc = f.exception()
+            if exc:
+                d.reject(exc)
+            else:
+                d.resolve(f.result())
+
+        future = f(self, *args)
+        IOLoop.current().add_future(future, done)
+
+        return d
+
+    return wrapped
+
+
+class APIBase(object):
+    def __init__(self, future):
+        self.future = future
+        self.active = True
+
+    def release(self):
+        self.active = False
+
+    def error(self, *args):
+
+        if len(args) >= 2:
+            exception = APIError(args[0], args[1])
+        elif len(args) >= 1 and isinstance(args[0], Exception):
+            exception = args[0]
+        else:
+            exception = APIError(500, "Internal Script Error")
+
+        self.future.set_exception(exception)
+
+    def res(self, result):
+        self.future.set_result(result)
+
 
 class FunctionCallError(Exception):
     def __init__(self, message=None):
@@ -70,13 +129,66 @@ def __precompile__(functions):
             return result
 
 
-def __run__(functions, arguments, **env):
-    with JSLocker():
+class JSAPIContext(JSContext):
+    def __init__(self, future, env):
         from api import API
 
-        call_api = API(env)
+        self.obj = API(future, env, IOLoop.current())
+        super(JSAPIContext, self).__init__(self.obj)
 
-        with JSContext(call_api) as context:
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.obj.release()
+        super(JSAPIContext, self).__exit__(exc_type, exc_value, traceback)
+
+
+class FunctionsCallModel(Model):
+    def __init__(self, functions, cache):
+
+        self.call_timeout = options.js_call_timeout
+        self.compile_pool = ProcessPoolExecutor(max_workers=options.js_compile_workers)
+
+        self.cache = cache
+        self.functions = functions
+        self.saved_code = ExpiringDict(max_len=64, max_age_seconds=60)
+
+    @coroutine
+    def prepare(self, gamespace_id, application_name, function_name):
+        key = str(gamespace_id) + ":" + str(function_name)
+
+        result = self.saved_code.get(key, None)
+
+        if not result:
+
+            logging.info("Compiling function '{0}'...".format(function_name))
+
+            # gather all functions with dependent functions (a dict name: source)
+            functions = (yield self.functions.get_function_with_dependencies(
+                gamespace_id,
+                application_name,
+                function_name))
+
+            # compile all functions in parallel
+            precompiled_functions = yield self.compile_pool.submit(__precompile__, functions)
+
+            # collect them together
+            result = [
+                CompiledFunction(name, functions[name], precompiled)
+                for name, precompiled in precompiled_functions.iteritems()
+            ]
+
+            self.saved_code[key] = result
+
+        raise Return(result)
+
+    def stopped(self):
+        self.compile_pool.shutdown()
+
+    @coroutine
+    def __run__(self, functions, arguments, **env):
+
+        future = Future()
+
+        with JSAPIContext(future, env) as context:
             with JSEngine() as engine:
 
                 for fn in functions:
@@ -93,56 +205,20 @@ def __run__(functions, arguments, **env):
                 main = context.locals.main
 
                 try:
-                    result = main.apply(main, arguments)
+                    main.apply(main, arguments)
                 except JSError as e:
-                    if call_api.exception:
-                        raise call_api.exception
-
                     raise FunctionCallError(str(e) + "\n" + e.stackTrace)
                 except Exception as e:
                     raise FunctionCallError(str(e))
 
-                return result
-
-
-class FunctionsCallModel(Model):
-    def __init__(self, functions, cache):
-
-        self.pool = ProcessPoolExecutor(max_workers=options.js_max_workers)
-
-        self.cache = cache
-        self.functions = functions
-        self.saved_code = ExpiringDict(max_len=64, max_age_seconds=60)
-
-    @coroutine
-    def prepare(self, gamespace_id, application_name, function_name):
-        key = str(gamespace_id) + ":" + str(function_name)
-
-        result = self.saved_code.get(key, None)
-
-        if not result:
-
-            # gather all functions with dependent functions (a dict name: source)
-            functions = (yield self.functions.get_function_with_dependencies(
-                gamespace_id,
-                application_name,
-                function_name))
-
-            # compile all functions in parallel
-            precompiled_functions = yield self.pool.submit(__precompile__, functions)
-
-            # collect them together
-            result = [
-                CompiledFunction(name, functions[name], precompiled)
-                for name, precompiled in precompiled_functions.iteritems()
-            ]
-
-            self.saved_code[key] = result
-
-        raise Return(result)
-
-    def stopped(self):
-        self.pool.shutdown()
+                try:
+                    result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
+                except TimeoutError:
+                    raise FunctionCallError("Function call timeout")
+                except InternalError as e:
+                    raise APIError(e.code, "Internal error: " + e.body)
+                else:
+                    raise Return(result)
 
     @coroutine
     def call(self, application_name, function_name, arguments, **env):
@@ -151,7 +227,7 @@ class FunctionsCallModel(Model):
             raise FunctionCallError("arguments expected to be a list")
 
         fns = yield self.prepare(env["gamespace"], application_name, function_name)
-        result = yield self.pool.submit(__run__, fns, arguments, **env)
+        result = yield self.__run__(fns, arguments, **env)
 
         raise Return(result)
 
@@ -161,6 +237,6 @@ class FunctionsCallModel(Model):
         if not isinstance(arguments, list):
             raise FunctionCallError("arguments expected to be a list")
 
-        result = yield self.pool.submit(__run__, functions, arguments, **env)
+        result = yield self.__run__(functions, arguments, **env)
 
         raise Return(result)

@@ -9,6 +9,8 @@ from model.function import FunctionExists, FunctionNotFound
 
 import common.testing
 import options as _opts
+from common import random_string
+import hashlib
 
 
 class FunctionsTestCase(common.testing.ServerTestCase):
@@ -70,7 +72,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
                 function main(a, b)
                 {
-                    return sum(a, b);
+                    res(sum(a, b));
                 }
             """, checks=[
                 ([10, 5], 15),
@@ -116,7 +118,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             """
                 function main(data)
                 {
-                    return data["a"] + data["b"];
+                    res(data["a"] + data["b"]);
                 }
             """, [])
 
@@ -169,7 +171,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
             function main(message)
             {
-                return SHA256.hash(message);
+                res(SHA256.hash(message));
             }
 
             """, ["sha256"])
@@ -190,7 +192,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_a", """
                 function main(first, second)
                 {
-                    return first + ":" + test_b(second);
+                    res(first + ":" + test_b(second));
                 }
             """, ["test_b"])
 
@@ -234,8 +236,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_parallel", """
                 function main(a, b)
                 {
-                    sleep(0.5);
-                    return a + b;
+                    sleep(0.5).done(function()
+                    {
+                        res(a + b);
+                    });
                 }
             """, [])
 

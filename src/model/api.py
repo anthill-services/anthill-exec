@@ -1,16 +1,33 @@
-
 import logging
-import time
-import fcall
+from lazy import lazy
+import datetime
+
+from fcall import APIBase, deferred
+from tornado.gen import coroutine, Return, sleep
+from common.access import Internal
 
 
-class API(fcall.APIBase):
-    def __init__(self, env):
-        super(API, self).__init__()
+class API(APIBase):
+    def __init__(self, future, env, ioloop):
+        super(API, self).__init__(future)
         self.env = env
+        self.ioloop = ioloop
 
-    def log(self, text):
-        logging.warn(text)
+    @deferred
+    @coroutine
+    def get_my_profile(self, path="", *ignored):
+        internal = Internal()
+        profile = yield internal.request("profile", "get_my_profile",
+                                         gamespace_id=self.env["gamespace"],
+                                         account_id=self.env["account"],
+                                         path=path)
 
-    def sleep(self, period):
-        time.sleep(period)
+        raise Return(profile)
+
+    def log(self, text, *ignored):
+        logging.info(text)
+
+    @deferred
+    @coroutine
+    def sleep(self, period, *ignored):
+        yield sleep(period)

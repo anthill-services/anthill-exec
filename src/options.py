@@ -68,7 +68,12 @@ define("cache_max_connections",
 
 # JS
 
-define("js_max_workers",
-       default=4,
-       help="Maximum worker processes to execute synchronous operations (like compilation or execution JS code)",
+define("js_compile_workers",
+       default=None,
+       help="Maximum worker processes to execute compilation operations (default = cpu count)",
+       type=int)
+
+define("js_call_timeout",
+       default=10,
+       help="Maximum time limit for each script execution",
        type=int)
