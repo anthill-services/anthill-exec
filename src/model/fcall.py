@@ -113,20 +113,19 @@ class CompiledFunction(object):
 
 
 def __precompile__(functions):
-    with JSLocker():
-        with JSEngine() as engine:
+    with JSEngine() as engine:
 
-            result = {}
+        result = {}
 
-            for name, source in functions.iteritems():
-                try:
-                    result[name] = bytes(engine.precompile(source))
-                except JSError as e:
-                    raise FunctionCallError(e)
-                except Exception as e:
-                    raise FunctionCallError(str(e))
+        for name, source in functions.iteritems():
+            try:
+                result[name] = bytearray(engine.precompile(source))
+            except JSError as e:
+                raise FunctionCallError(e)
+            except Exception as e:
+                raise FunctionCallError(str(e))
 
-            return result
+        return result
 
 
 class JSAPIContext(JSContext):
