@@ -14,7 +14,10 @@ import logging
 
 # pip install -e git://github.com/brokenseal/PyV8-OS-X#egg=pyv8
 
-from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker
+try:
+    from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker
+except ImportError:
+    from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker
 
 
 class APIError(Exception):
