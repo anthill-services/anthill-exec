@@ -79,10 +79,7 @@ class ApplicationController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
 
 
@@ -112,10 +109,7 @@ class UnbindFunctionController(a.AdminController):
                          message="Function has been unbound",
                          record_id=record_id)
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
 
 
@@ -145,10 +139,7 @@ class ApplicationsController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
 
 
@@ -161,10 +152,7 @@ class RootAdminController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
 
 
@@ -192,10 +180,7 @@ class FunctionsController(a.AdminController):
             "functions": (yield functions.list_functions(self.gamespace))
         })
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
 
 
@@ -245,10 +230,7 @@ class NewFunctionController(a.AdminController):
             "code": example
         })
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
 
 
@@ -319,8 +301,5 @@ class FunctionController(a.AdminController):
             "imports": function.imports
         })
 
-    def scopes_read(self):
-        return ["exec_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["exec_admin"]
