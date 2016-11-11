@@ -15,9 +15,9 @@ import logging
 # pip install -e git://github.com/brokenseal/PyV8-OS-X#egg=pyv8
 
 try:
-    from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker
+    from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, convert
 except ImportError:
-    from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker
+    from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, convert
 
 
 class APIError(Exception):
@@ -92,7 +92,7 @@ class APIBase(object):
         self.future.set_exception(exception)
 
     def res(self, result):
-        self.future.set_result(result)
+        self.future.set_result(convert(result))
 
 
 class FunctionCallError(Exception):

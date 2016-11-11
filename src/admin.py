@@ -223,7 +223,7 @@ class NewFunctionController(a.AdminController):
     def get(self):
         example = ("function main()\n"
                    "{\n"
-                   "    return 'test';\n"
+                   "    res('test');\n"
                    "}")
 
         raise Return({
