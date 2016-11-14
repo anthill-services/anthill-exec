@@ -73,12 +73,20 @@ def deferred(f):
 
 
 class APIBase(object):
-    def __init__(self, future):
+    def __init__(self, future, debug):
         self.future = future
         self.active = True
+        self.debug = debug
 
     def release(self):
         self.active = False
+
+    def log(self, data, *ignored):
+
+        logging.info(data)
+
+        if self.debug:
+            self.debug.log(data)
 
     def error(self, *args):
 
@@ -115,6 +123,14 @@ class CompiledFunction(object):
         self.precompiled = precompiled
 
 
+class Debug(object):
+    def __init__(self):
+        self.collected_log = ""
+
+    def log(self, data):
+        self.collected_log += data + "\n"
+
+
 def __precompile__(functions):
     with JSEngine() as engine:
 
@@ -132,10 +148,10 @@ def __precompile__(functions):
 
 
 class JSAPIContext(JSContext):
-    def __init__(self, future, env):
+    def __init__(self, future, env, debug):
         from api import API
 
-        self.obj = API(future, env, IOLoop.current())
+        self.obj = API(future, env, IOLoop.current(), debug)
         super(JSAPIContext, self).__init__(self.obj)
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -154,10 +170,13 @@ class FunctionsCallModel(Model):
         self.saved_code = ExpiringDict(max_len=64, max_age_seconds=60)
 
     @coroutine
-    def prepare(self, gamespace_id, application_name, function_name):
+    def prepare(self, gamespace_id, application_name, function_name, cache):
         key = str(gamespace_id) + ":" + str(function_name)
 
-        result = self.saved_code.get(key, None)
+        if cache:
+            result = self.saved_code.get(key, None)
+        else:
+            result = None
 
         if not result:
 
@@ -186,11 +205,11 @@ class FunctionsCallModel(Model):
         self.compile_pool.shutdown()
 
     @coroutine
-    def __run__(self, functions, arguments, **env):
+    def __run__(self, functions, arguments, debug, **env):
 
         future = Future()
 
-        with JSAPIContext(future, env) as context:
+        with JSAPIContext(future, env, debug) as context:
             with JSEngine() as engine:
 
                 for fn in functions:
@@ -222,14 +241,17 @@ class FunctionsCallModel(Model):
                 else:
                     raise Return(result)
 
+    def debug(self):
+        return Debug()
+
     @coroutine
-    def call(self, application_name, function_name, arguments, **env):
+    def call(self, application_name, function_name, arguments, cache=True, debug=None, **env):
 
         if not isinstance(arguments, list):
             raise FunctionCallError("arguments expected to be a list")
 
-        fns = yield self.prepare(env["gamespace"], application_name, function_name)
-        result = yield self.__run__(fns, arguments, **env)
+        fns = yield self.prepare(env["gamespace"], application_name, function_name, cache)
+        result = yield self.__run__(fns, arguments, debug, **env)
 
         raise Return(result)
 

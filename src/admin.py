@@ -5,9 +5,14 @@ from tornado.gen import coroutine, Return
 import common.admin as a
 
 from model.function import FunctionNotFound, FunctionExists, FunctionError, Imports
+from model.fcall import FunctionCallError, APIError
 
 from common.environment import AppNotFound
+from common.access import AccessToken
 from common import to_int
+from common.internal import Internal, InternalError
+
+import ujson
 
 
 class ApplicationController(a.AdminController):
@@ -30,7 +35,7 @@ class ApplicationController(a.AdminController):
             "unbounded_functions": {
                 fn.function_id: fn.name
                 for fn in (yield functions.list_unbounded_functions(self.gamespace, record_id))
-            },
+                },
         }
 
         raise a.Return(result)
@@ -66,7 +71,7 @@ class ApplicationController(a.AdminController):
             a.links("Bound functions (click to unbind)", links=[
                 a.link("unbind", fn.name, icon="code", record_id=self.context.get("record_id"),
                        function_id=fn.function_id) for fn in data["functions"]
-            ]),
+                ]),
             a.form("Bind new function to this application", fields={
                 "function_id": a.field("Function", "select", "primary", "number", values=data["unbounded_functions"])
             }, methods={
@@ -116,7 +121,6 @@ class UnbindFunctionController(a.AdminController):
 class ApplicationsController(a.AdminController):
     @coroutine
     def get(self):
-
         env_service = self.application.env_service
         apps = yield env_service.list_apps(self.gamespace)
 
@@ -131,8 +135,8 @@ class ApplicationsController(a.AdminController):
             a.breadcrumbs([], "Applications"),
             a.links("Select application", links=[
                 a.link("app", app_name, icon="mobile", record_id=app_id)
-                    for app_id, app_name in data["apps"].iteritems()
-            ]),
+                for app_id, app_name in data["apps"].iteritems()
+                ]),
             a.links("Navigate", [
                 a.link("index", "Go back"),
                 a.link("/environment/apps", "Manage apps", icon="link text-danger"),
@@ -163,7 +167,7 @@ class FunctionsController(a.AdminController):
             a.links("Functions", [
                 a.link("function", f.name, icon="code", function_id=f.function_id)
                 for f in data["functions"]
-            ]),
+                ]),
             a.notice("Notice", "Please note that the function should be bound "
                                "to the application in order to be called."),
             a.links("Navigate", [
@@ -240,7 +244,7 @@ class FunctionController(a.AdminController):
             a.breadcrumbs([
                 a.link("functions", "Functions")
             ], data["name"]),
-            a.form("New function", fields={
+            a.form("Function", fields={
                 "name": a.field("Function Name", "text", "primary", "non-empty", order=1),
                 "imports": a.field("Function Imports", "tags", "primary", order=2),
                 "code": a.field("Javascript Code", "code", "primary", "non-empty", order=3),
@@ -249,7 +253,9 @@ class FunctionController(a.AdminController):
                 "delete": a.method("Delete", "danger")
             }, data=data),
             a.links("Navigate", [
-                a.link("functions", "Go back")
+                a.link("functions", "Go back"),
+                a.link("debug_function", "Debug this function", icon="bug",
+                       function_id=self.context.get("function_id"))
             ])
         ]
 
@@ -299,6 +305,138 @@ class FunctionController(a.AdminController):
             "code": function.code,
             "name": function.name,
             "imports": function.imports
+        })
+
+    def access_scopes(self):
+        return ["exec_admin"]
+
+
+class DebugFunctionController(a.AdminController):
+    def render(self, data):
+        r = [
+            a.breadcrumbs([
+                a.link("functions", "Functions"),
+                a.link("function", data["name"], function_id=self.context.get("function_id"))
+            ], "Debug")
+        ]
+
+        if "result" in data:
+            r.append(a.form("Call Result <b>{0}</b>".format(data["name"]), fields={
+                "result": a.field("Call Result", "json", "primary", "non-empty", order=1, height=200),
+                "log": a.field("Log Output", "text", "primary", "non-empty", order=1, multiline=10),
+            }, methods={}, data=data, icon="bug"))
+
+        r.extend([
+            a.form("Debug function <b>{0}</b>".format(data["name"]), fields={
+                "arguments": a.field("Arguments", "dorn", "primary", schema={
+                    "type": "array",
+                    "title": "Arguments",
+                    "description": "Will be passed to function <b>main()</b>",
+                    "items": {
+                        "type": "string",
+                        "title": "An Argument"
+                    },
+                    "format": "table",
+                    "options": {
+                        "disable_array_reorder": True
+                    }
+                }, order=1),
+                "credential": a.field("Credential", "text", "primary", "non-empty", order=2),
+                "application_name": a.field("Application", "select", "primary", "non-empty", order=3,
+                                            values=data["apps"])
+            }, methods={
+                "run": a.method("Run", "primary")
+            }, data=data, icon="bug"),
+
+            a.links("Navigate", [
+                a.link("function", "Go back", function_id=self.context.get("function_id"))
+            ])
+        ])
+
+        return r
+
+    @coroutine
+    def run(self, arguments, credential, application_name, **ignored):
+        functions = self.application.functions
+        fcalls = self.application.fcalls
+        env_service = self.application.env_service
+
+        internal = Internal()
+        try:
+            account = yield internal.request(
+                "login",
+                "get_account",
+                credential=credential)
+
+        except InternalError as e:
+            if e.code == 400:
+                raise a.ActionError("Failed to find credential: bad username")
+            if e.code == 404:
+                raise a.ActionError("Failed to find credential: no such user")
+
+            raise a.ActionError(e.body)
+        else:
+            account = account["id"]
+
+        apps = yield env_service.list_apps(self.gamespace)
+
+        function_id = self.context.get("function_id")
+
+        try:
+            function = yield functions.get_function(self.gamespace, function_id)
+        except FunctionNotFound:
+            raise a.ActionError("No such function")
+
+        try:
+            args = ujson.loads(arguments)
+        except (KeyError, ValueError):
+            raise a.ActionError("Corrupted args.")
+
+        debug = fcalls.debug()
+
+        try:
+            result = yield fcalls.call(application_name, function.name, args,
+                                       debug=debug,
+                                       cache=False,
+                                       gamespace=self.gamespace,
+                                       account=account)
+
+        except FunctionCallError as e:
+            raise a.ActionError(e.message)
+        except APIError as e:
+            raise a.ActionError(e.message)
+        except FunctionNotFound:
+            raise a.ActionError("No such function")
+
+        if not isinstance(result, (str, dict, list)):
+            result = str(result)
+
+        raise a.Return({
+            "name": function.name,
+            "credential": credential,
+            "arguments": args,
+            "apps": apps,
+            "application_name": application_name,
+            "result": result,
+            "log": debug.collected_log
+        })
+
+    @coroutine
+    def get(self, function_id):
+        functions = self.application.functions
+        env_service = self.application.env_service
+
+        apps = yield env_service.list_apps(self.gamespace)
+
+        try:
+            function = yield functions.get_function(self.gamespace, function_id)
+        except FunctionNotFound:
+            raise a.ActionError("No such function")
+
+        raise Return({
+            "name": function.name,
+            "credential": self.token.name,
+            "apps": apps
         })
 
     def access_scopes(self):

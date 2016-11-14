@@ -51,7 +51,8 @@ class ExecServer(common.server.Server):
             "unbind": admin.UnbindFunctionController,
             "functions": admin.FunctionsController,
             "new_function": admin.NewFunctionController,
-            "function": admin.FunctionController
+            "function": admin.FunctionController,
+            "debug_function": admin.DebugFunctionController
         }
 
     def get_metadata(self):
