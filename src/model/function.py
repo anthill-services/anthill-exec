@@ -2,7 +2,7 @@
 import re
 
 from tornado.gen import coroutine, Return
-from common.database import DatabaseError, DuplicateError
+from common.database import DatabaseError, DuplicateError, ConstraintsError
 from common.model import Model
 
 IMPORTS_PATTERN = re.compile("^([A-Za-z0-9_]+)$")
@@ -82,6 +82,8 @@ class FunctionsModel(Model):
                     DELETE FROM `functions`
                     WHERE `function_id`=%s AND `gamespace_id`=%s;
                 """, function_id, gamespace_id)
+        except ConstraintsError:
+            raise FunctionError("Unbind the function from applications first")
         except DatabaseError as e:
             raise FunctionError("Failed to delete function: " + e.args[1])
 

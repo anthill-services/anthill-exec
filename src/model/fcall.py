@@ -8,7 +8,7 @@ from functools import wraps
 import datetime
 
 from concurrent.futures import ProcessPoolExecutor
-
+from common import ElapsedTime
 from common.options import options
 import logging
 
@@ -250,8 +250,10 @@ class FunctionsCallModel(Model):
         if not isinstance(arguments, list):
             raise FunctionCallError("arguments expected to be a list")
 
+        t = ElapsedTime("Function execution")
         fns = yield self.prepare(env["gamespace"], application_name, function_name, cache)
         result = yield self.__run__(fns, arguments, debug, **env)
+        logging.info(t.done())
 
         raise Return(result)
 
