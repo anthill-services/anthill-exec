@@ -1,16 +1,59 @@
-
 import common.access
 
 from tornado.web import HTTPError
-from tornado.gen import coroutine
+from tornado.gen import coroutine, Return
 
 from common.access import scoped, AccessToken
 import common.handler
 
-from model.fcall import FunctionCallError, APIError
+from model.fcall import FunctionCallError, APIError, NoSuchMethodError
 from model.function import FunctionNotFound
+from common.jsonrpc import JsonRPCError
 
 import ujson
+
+
+class CallSessionHandler(common.handler.JsonRPCWSHandler):
+    def __init__(self, application, request, **kwargs):
+        super(CallSessionHandler, self).__init__(application, request, **kwargs)
+        self.session = None
+
+    def required_scopes(self):
+        return ["exec_func_call"]
+
+    @coroutine
+    def opened(self, application_name, function_name):
+        user = self.current_user
+        token = user.token
+
+        fcalls = self.application.fcalls
+        gamespace_id = token.get(AccessToken.GAMESPACE)
+
+        self.session = yield fcalls.session(application_name, function_name,
+                                            gamespace=gamespace_id, account=token.account)
+
+    @coroutine
+    def call(self, method_name, arguments):
+        try:
+            result = yield self.session.call(method_name, arguments)
+        except NoSuchMethodError as e:
+            raise JsonRPCError(404, str(e))
+        except FunctionCallError as e:
+            raise JsonRPCError(500, e.message)
+        except APIError as e:
+            raise JsonRPCError(e.code, e.message)
+        except FunctionNotFound:
+            raise JsonRPCError(404, "No such function")
+
+        if not isinstance(result, (str, dict, list)):
+            result = str(result)
+
+        raise Return(result)
+
+    @coroutine
+    def closed(self):
+        if self.session:
+            yield self.session.release()
 
 
 class CallActionHandler(common.handler.AuthenticatedHandler):
@@ -22,16 +65,21 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
 
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
+        method_name = self.get_argument("method_name", "main")
+
         try:
-            args = ujson.loads(self.get_argument("args", "[]"))
+            args = ujson.loads(self.get_argument("args", "{}"))
         except (KeyError, ValueError):
-            raise HTTPError(400, "Corrupted args.")
+            raise HTTPError(400, "Corrupted args, expected to be a dict or list.")
 
         try:
             result = yield fcalls.call(application_name, function_name, args,
+                                       method_name=method_name,
                                        gamespace=gamespace_id,
                                        account=self.token.account)
 
+        except NoSuchMethodError as e:
+            raise HTTPError(404, str(e))
         except FunctionCallError as e:
             raise HTTPError(500, e.message)
         except APIError as e:

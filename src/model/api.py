@@ -3,15 +3,17 @@ from lazy import lazy
 import datetime
 
 from fcall import APIBase, APIError, deferred, convert
-from tornado.gen import coroutine, Return, sleep
+from tornado.gen import coroutine, engine, Return, sleep
 from common.access import Internal
+from expiringdict import ExpiringDict
 
 
 class API(APIBase):
-    def __init__(self, future, env, ioloop, debug):
-        super(API, self).__init__(future, debug)
+    def __init__(self, env, ioloop, debug):
+        super(API, self).__init__(debug)
         self.env = env
         self.ioloop = ioloop
+        self.profile_cache = ExpiringDict(10, 60)
 
     def log(self, data, *ignored):
         super(API, self).log("JS: gs #{0} acc @{1} {2}".format(
@@ -22,11 +24,19 @@ class API(APIBase):
     @deferred
     @coroutine
     def get_my_profile(self, path="", *ignored):
+
+        cached = self.profile_cache.get(path)
+
+        if cached:
+            raise Return(cached)
+
         internal = Internal()
         profile = yield internal.request("profile", "get_my_profile",
                                          gamespace_id=self.env["gamespace"],
                                          account_id=self.env["account"],
                                          path=path)
+
+        self.profile_cache[path] = profile
 
         raise Return(profile)
 
@@ -49,6 +59,8 @@ class API(APIBase):
                                          fields=profile,
                                          path=path,
                                          merge=merge)
+
+        self.profile_cache[path] = profile
 
         raise Return(profile)
 

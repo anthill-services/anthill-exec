@@ -1,10 +1,11 @@
 
 from tornado.gen import coroutine, Return, Future, with_timeout, TimeoutError
-from tornado.ioloop import IOLoop
+from tornado.ioloop import IOLoop, stack_context
+
 from common.model import Model
 from common.access import InternalError
 from expiringdict import ExpiringDict
-from functools import wraps
+from functools import wraps, partial
 import datetime
 
 from concurrent.futures import ProcessPoolExecutor
@@ -59,10 +60,13 @@ def deferred(f):
 
         def done(f):
             exc = f.exception()
-            if exc:
-                d.reject(exc)
-            else:
-                d.resolve(f.result())
+            try:
+                if exc:
+                    d.reject(exc)
+                else:
+                    d.resolve(f.result())
+            except JSError as e:
+                self.future.set_exception(FunctionCallError(str(e)))
 
         future = f(self, *args)
         IOLoop.current().add_future(future, done)
@@ -72,9 +76,32 @@ def deferred(f):
     return wrapped
 
 
-class APIBase(object):
-    def __init__(self, future, debug):
+class Response(object):
+    def __init__(self):
+        self.future = None
+
+    def set_response(self, future):
         self.future = future
+
+    def error(self, *args):
+        if len(args) >= 2:
+            exception = APIError(args[0], args[1])
+        elif len(args) >= 1 and isinstance(args[0], Exception):
+            exception = args[0]
+        else:
+            exception = APIError(500, "Internal Script Error")
+
+        if self.future:
+            self.future.set_exception(exception)
+
+    def res(self, result):
+        if self.future:
+            self.future.set_result(convert(result))
+
+
+class APIBase(object):
+    def __init__(self, debug):
+        self.response = Response()
         self.active = True
         self.debug = debug
 
@@ -89,18 +116,10 @@ class APIBase(object):
             self.debug.log(data)
 
     def error(self, *args):
-
-        if len(args) >= 2:
-            exception = APIError(args[0], args[1])
-        elif len(args) >= 1 and isinstance(args[0], Exception):
-            exception = args[0]
-        else:
-            exception = APIError(500, "Internal Script Error")
-
-        self.future.set_exception(exception)
+        self.response.error(*args)
 
     def res(self, result):
-        self.future.set_result(convert(result))
+        self.response.res(result)
 
 
 class FunctionCallError(Exception):
@@ -111,9 +130,9 @@ class FunctionCallError(Exception):
         return self.message
 
 
-class NoMainMethodError(FunctionCallError):
-    def __init__(self):
-        super(NoMainMethodError, self).__init__("No main() function found.")
+class NoSuchMethodError(FunctionCallError):
+    def __init__(self, method):
+        super(NoSuchMethodError, self).__init__("No {0}() function found.".format(method))
 
 
 class CompiledFunction(object):
@@ -148,15 +167,59 @@ def __precompile__(functions):
 
 
 class JSAPIContext(JSContext):
-    def __init__(self, future, env, debug):
+    def __init__(self, env, debug):
         from api import API
 
-        self.obj = API(future, env, IOLoop.current(), debug)
+        self.obj = API(env, IOLoop.current(), debug)
         super(JSAPIContext, self).__init__(self.obj)
+
+    def set_response(self, future):
+        self.obj.response.set_response(future)
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.obj.release()
         super(JSAPIContext, self).__exit__(exc_type, exc_value, traceback)
+
+
+class CallSession(object):
+    def __init__(self, model, function_name, functions, **env):
+        self.context = JSAPIContext(env, False)
+        self.gamespace = env["gamespace"]
+        self.account_id = env["account"]
+        self.function_name = function_name
+        self.engine = JSEngine()
+        self.functions = functions
+        self.model = model
+
+    @coroutine
+    def init(self):
+        self.context.enter()
+
+        for fn in self.functions:
+            try:
+                self.engine.compile(fn.source, precompiled=fn.precompiled).run()
+            except JSError as e:
+                raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
+            except Exception as e:
+                raise FunctionCallError(str(e))
+
+        logging.info("Session started: @{0} user {1} fn {2}".format(
+            self.gamespace, self.account_id, self.function_name
+        ))
+
+    @coroutine
+    def call(self, method_name, arguments):
+        result = yield self.model.__run__(self.context, method_name, arguments)
+        raise Return(result)
+
+    @coroutine
+    def release(self):
+        del self.engine
+        self.context.leave()
+
+        logging.info("Session released: @{0} user {1} fn {2}".format(
+            self.gamespace, self.account_id, self.function_name
+        ))
 
 
 class FunctionsCallModel(Model):
@@ -170,7 +233,7 @@ class FunctionsCallModel(Model):
         self.saved_code = ExpiringDict(max_len=64, max_age_seconds=60)
 
     @coroutine
-    def prepare(self, gamespace_id, application_name, function_name, cache):
+    def prepare(self, gamespace_id, application_name, function_name, cache=True):
         key = str(gamespace_id) + ":" + str(function_name)
 
         if cache:
@@ -205,13 +268,9 @@ class FunctionsCallModel(Model):
         self.compile_pool.shutdown()
 
     @coroutine
-    def __run__(self, functions, arguments, debug, **env):
-
-        future = Future()
-
-        with JSAPIContext(future, env, debug) as context:
+    def __run_context__(self, functions, method_name, arguments, debug, **env):
+        with JSAPIContext(env, debug) as context:
             with JSEngine() as engine:
-
                 for fn in functions:
                     try:
                         engine.compile(fn.source, precompiled=fn.precompiled).run()
@@ -220,49 +279,78 @@ class FunctionsCallModel(Model):
                     except Exception as e:
                         raise FunctionCallError(str(e))
 
-                if not hasattr(context.locals, "main"):
-                    raise NoMainMethodError()
+                result = yield self.__run__(context, method_name, arguments)
+                raise Return(result)
 
-                main = context.locals.main
+    @coroutine
+    def __run__(self, context, method, arguments):
 
-                try:
-                    main.apply(main, arguments)
-                except JSError as e:
-                    raise FunctionCallError(str(e) + "\n" + e.stackTrace)
-                except Exception as e:
-                    raise FunctionCallError(str(e))
+        if not isinstance(method, (str, unicode)):
+            raise FunctionCallError("Method is not a string")
 
-                try:
-                    result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
-                except TimeoutError:
-                    raise FunctionCallError("Function call timeout")
-                except InternalError as e:
-                    raise APIError(e.code, "Internal error: " + e.body)
-                else:
-                    raise Return(result)
+        if method.startswith("_"):
+            raise FunctionCallError("Cannot call such method")
+
+        if not hasattr(context.locals, method):
+            raise NoSuchMethodError(method)
+
+        method_function = getattr(context.locals, method, None)
+
+        if not method_function:
+            raise NoSuchMethodError(method)
+
+        future = Future()
+        context.set_response(future)
+
+        try:
+            method_function.apply(method_function, [arguments])
+        except JSError as e:
+            raise FunctionCallError(str(e) + "\n" + e.stackTrace)
+        except Exception as e:
+            raise FunctionCallError(str(e))
+
+        try:
+            result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
+        except TimeoutError:
+            raise FunctionCallError("Function call timeout")
+        except InternalError as e:
+            raise APIError(e.code, "Internal error: " + e.body)
+        else:
+            raise Return(result)
 
     def debug(self):
         return Debug()
 
     @coroutine
-    def call(self, application_name, function_name, arguments, cache=True, debug=None, **env):
+    def session(self, application_name, function_name, cache=True, **env):
 
-        if not isinstance(arguments, list):
-            raise FunctionCallError("arguments expected to be a list")
+        t = ElapsedTime("Session {0}/{1} creation".format(application_name, function_name))
+        fns = yield self.prepare(env["gamespace"], application_name, function_name, cache)
+        session = CallSession(self, function_name, fns, **env)
+        yield session.init()
+        logging.info(t.done())
+
+        raise Return(session)
+
+    @coroutine
+    def call(self, application_name, function_name, arguments, method_name="main", cache=True, debug=None, **env):
+
+        if not isinstance(arguments, (dict, list)):
+            raise FunctionCallError("arguments expected to be a list or dict")
 
         t = ElapsedTime("Function execution")
         fns = yield self.prepare(env["gamespace"], application_name, function_name, cache)
-        result = yield self.__run__(fns, arguments, debug, **env)
+        result = yield self.__run_context__(fns, method_name, arguments, debug, **env)
         logging.info(t.done())
 
         raise Return(result)
 
     @coroutine
-    def call_fn(self, functions, arguments, **env):
+    def call_fn(self, functions, arguments, method_name="main", **env):
 
-        if not isinstance(arguments, list):
-            raise FunctionCallError("arguments expected to be a list")
+        if not isinstance(arguments, (dict, list)):
+            raise FunctionCallError("arguments expected to be a list or dict")
 
-        result = yield self.__run__(functions, arguments, **env)
+        result = yield self.__run_context__(functions, method_name, arguments, None, **env)
 
         raise Return(result)

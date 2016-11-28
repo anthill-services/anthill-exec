@@ -195,9 +195,9 @@ class NewFunctionController(a.AdminController):
                 a.link("functions", "Functions")
             ], "New function"),
             a.form("New function", fields={
-                "name": a.field("Function Name", "text", "primary", "non-empty", order=1),
-                "imports": a.field("Function Imports", "tags", "primary", order=2),
-                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=3),
+                "name": a.field("Function Name", "text", "primary", "non-empty", order=2),
+                "imports": a.field("Function Imports", "tags", "primary", order=3),
+                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=1),
             }, methods={
                 "create": a.method("Create", "primary")
             }, data=data),
@@ -245,9 +245,9 @@ class FunctionController(a.AdminController):
                 a.link("functions", "Functions")
             ], data["name"]),
             a.form("Function", fields={
-                "name": a.field("Function Name", "text", "primary", "non-empty", order=1),
-                "imports": a.field("Function Imports", "tags", "primary", order=2),
-                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=3),
+                "name": a.field("Function Name", "text", "primary", "non-empty", order=2),
+                "imports": a.field("Function Imports", "tags", "primary", order=3),
+                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=1, height=800),
             }, methods={
                 "update": a.method("Update", "primary"),
                 "delete": a.method("Delete", "danger")
@@ -321,26 +321,20 @@ class DebugFunctionController(a.AdminController):
         ]
 
         if "result" in data:
-            r.append(a.form("Call Result <b>{0}</b>".format(data["name"]), fields={
-                "result": a.field("Call Result", "json", "primary", "non-empty", order=1, height=200),
-                "log": a.field("Log Output", "text", "primary", "non-empty", order=1, multiline=10),
-            }, methods={}, data=data, icon="bug"))
+            r.append(a.split([
+                a.form("Call Result", fields={
+                    "result": a.field("", "json", "primary", "non-empty", order=1, height=200)
+                }, methods={}, data=data, icon="bug"),
+                a.form("Log output", fields={
+                    "log": a.field("", "text", "primary", "non-empty", order=1, multiline=10)
+                }, methods={}, data=data, icon="bars")
+            ]))
 
         r.extend([
             a.form("Debug function <b>{0}</b>".format(data["name"]), fields={
-                "arguments": a.field("Arguments", "dorn", "primary", schema={
-                    "type": "array",
-                    "title": "Arguments",
-                    "description": "Will be passed to function <b>main()</b>",
-                    "items": {
-                        "type": "string",
-                        "title": "An Argument"
-                    },
-                    "format": "table",
-                    "options": {
-                        "disable_array_reorder": True
-                    }
-                }, order=1),
+                "arguments": a.field("Arguments Object "
+                                     "(will be passed as first argument <b>args</b> to the function <b>main</b>)",
+                                     "json", "primary", order=1, height=100),
                 "credential": a.field("Credential", "text", "primary", "non-empty", order=2),
                 "application_name": a.field("Application", "select", "primary", "non-empty", order=3,
                                             values=data["apps"])
@@ -402,9 +396,11 @@ class DebugFunctionController(a.AdminController):
                                        account=account)
 
         except FunctionCallError as e:
-            raise a.ActionError(e.message)
+            debug.log("Error: " + e.message)
+            result = str(e)
         except APIError as e:
-            raise a.ActionError(e.message)
+            debug.log("Error: " + e.message)
+            result = str(e)
         except FunctionNotFound:
             raise a.ActionError("No such function")
 
@@ -436,7 +432,8 @@ class DebugFunctionController(a.AdminController):
         raise Return({
             "name": function.name,
             "credential": self.token.name,
-            "apps": apps
+            "apps": apps,
+            "arguments": {}
         })
 
     def access_scopes(self):
