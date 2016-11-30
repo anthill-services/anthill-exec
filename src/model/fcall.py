@@ -1,24 +1,22 @@
-
 from tornado.gen import coroutine, Return, Future, with_timeout, TimeoutError
 from tornado.ioloop import IOLoop, stack_context
 
 from common.model import Model
 from common.access import InternalError
 from expiringdict import ExpiringDict
-from functools import wraps, partial
 import datetime
 
 from concurrent.futures import ProcessPoolExecutor
-from common import ElapsedTime
+from common import ElapsedTime, SyncTimeout
 from common.options import options
 import logging
+import ujson
 
-# pip install -e git://github.com/brokenseal/PyV8-OS-X#egg=pyv8
 
 try:
-    from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, convert
+    from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, convert
 except ImportError:
-    from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, convert
+    from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, convert
 
 
 class APIError(Exception):
@@ -54,26 +52,59 @@ class Deferred(object):
 
 
 def deferred(f):
-
-    def wrapped(self, *args):
+    def wrapped(self, *args, **kwargs):
         d = Deferred(self)
 
         def done(f):
             exc = f.exception()
             try:
-                if exc:
-                    d.reject(exc)
-                else:
-                    d.resolve(f.result())
+                with SyncTimeout(1):
+                    if exc:
+                        d.reject(exc)
+                    else:
+                        d.resolve(f.result())
+            except SyncTimeout.TimeoutError:
+                self.response.exception(FunctionCallError(
+                    "Function call process timeout: function shouldn't be blocking and should rely "
+                    "on async methods instead."))
             except JSError as e:
-                self.future.set_exception(FunctionCallError(str(e)))
+                if APIUserError.user(e):
+                    code, message = APIUserError.parse(e)
+                    exc = APIError(code, message)
+                else:
+                    exc = FunctionCallError(str(e) + "\n" + e.stackTrace)
 
-        future = f(self, *args)
+                self.response.exception(exc)
+
+        future = coroutine(f)(self, *args, **kwargs)
         IOLoop.current().add_future(future, done)
 
         return d
 
     return wrapped
+
+
+class APIUserError(object):
+    def __init__(self, code, message):
+        self.message = ujson.dumps([code, message])
+        self.name = "APIUserError"
+
+    @staticmethod
+    def user(e):
+        return e.name == "APIUserError"
+
+    @staticmethod
+    def parse(e):
+        message = e.message
+        try:
+            data = ujson.loads(message)
+        except Exception as e:
+            return 500, e.message
+        else:
+            if not isinstance(data, list):
+                return 500, "Error is not a list"
+
+            return data[0], data[1]
 
 
 class Response(object):
@@ -85,17 +116,20 @@ class Response(object):
 
     def error(self, *args):
         if len(args) >= 2:
-            exception = APIError(args[0], args[1])
+            exception = APIUserError(args[0], args[1])
         elif len(args) >= 1 and isinstance(args[0], Exception):
-            exception = args[0]
+            exception = APIUserError(500, str(args[0]))
         else:
-            exception = APIError(500, "Internal Script Error")
+            exception = APIUserError(500, "Internal Script Error")
 
-        if self.future:
-            self.future.set_exception(exception)
+        return exception
+
+    def exception(self, exc):
+        if self.future and not self.future.done():
+            self.future.set_exception(exc)
 
     def res(self, result):
-        if self.future:
+        if self.future and not self.future.done():
             self.future.set_result(convert(result))
 
 
@@ -109,14 +143,13 @@ class APIBase(object):
         self.active = False
 
     def log(self, data, *ignored):
-
         logging.info(data)
 
         if self.debug:
             self.debug.log(data)
 
     def error(self, *args):
-        self.response.error(*args)
+        return self.response.error(*args)
 
     def res(self, result):
         self.response.res(result)
@@ -190,6 +223,7 @@ class CallSession(object):
         self.engine = JSEngine()
         self.functions = functions
         self.model = model
+        self.name = ""
 
     @coroutine
     def init(self):
@@ -197,15 +231,22 @@ class CallSession(object):
 
         for fn in self.functions:
             try:
-                self.engine.compile(fn.source, precompiled=fn.precompiled).run()
+                with SyncTimeout(5):
+                    self.engine.compile(fn.source, precompiled=fn.precompiled).run()
             except JSError as e:
                 raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
+            except SyncTimeout.TimeoutError:
+                raise FunctionCallError(
+                    "Function compile timeout: function shouldn't be blocking and should rely "
+                    "on async methods instead.")
+
             except Exception as e:
                 raise FunctionCallError(str(e))
 
-        logging.info("Session started: @{0} user {1} fn {2}".format(
-            self.gamespace, self.account_id, self.function_name
-        ))
+        self.name = "gamespace {0} / user @{1} / function '{2}'".format(
+            self.gamespace, self.account_id, self.function_name)
+
+        logging.info("Session started: " + self.name)
 
     @coroutine
     def call(self, method_name, arguments):
@@ -242,7 +283,6 @@ class FunctionsCallModel(Model):
             result = None
 
         if not result:
-
             logging.info("Compiling function '{0}'...".format(function_name))
 
             # gather all functions with dependent functions (a dict name: source)
@@ -258,7 +298,7 @@ class FunctionsCallModel(Model):
             result = [
                 CompiledFunction(name, functions[name], precompiled)
                 for name, precompiled in precompiled_functions.iteritems()
-            ]
+                ]
 
             self.saved_code[key] = result
 
@@ -273,7 +313,7 @@ class FunctionsCallModel(Model):
             with JSEngine() as engine:
                 for fn in functions:
                     try:
-                        engine.compile(fn.source, precompiled=fn.precompiled).run()
+                        engine.compile(fn.source, name=str(fn.name), line=-1, col=-1, precompiled=fn.precompiled).run()
                     except JSError as e:
                         raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
                     except Exception as e:
@@ -303,9 +343,17 @@ class FunctionsCallModel(Model):
         context.set_response(future)
 
         try:
-            method_function.apply(method_function, [arguments])
+            with SyncTimeout(1):
+                method_function.apply(method_function, [arguments])
         except JSError as e:
+            if APIUserError.user(e):
+                code, message = APIUserError.parse(e)
+                raise APIError(code, message)
+
             raise FunctionCallError(str(e) + "\n" + e.stackTrace)
+        except SyncTimeout.TimeoutError:
+            raise FunctionCallError("Function call process timeout: function shouldn't be blocking and should rely "
+                                    "on async methods instead.")
         except Exception as e:
             raise FunctionCallError(str(e))
 

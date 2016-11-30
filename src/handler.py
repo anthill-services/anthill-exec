@@ -22,28 +22,45 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         return ["exec_func_call"]
 
     @coroutine
-    def opened(self, application_name, function_name):
+    def prepared(self, application_name, function_name):
+        yield super(CallSessionHandler, self).prepared()
+
         user = self.current_user
         token = user.token
 
         fcalls = self.application.fcalls
         gamespace_id = token.get(AccessToken.GAMESPACE)
 
-        self.session = yield fcalls.session(application_name, function_name,
-                                            gamespace=gamespace_id, account=token.account)
+        try:
+            self.session = yield fcalls.session(
+                application_name, function_name,
+                gamespace=gamespace_id, account=token.account)
+
+        except NoSuchMethodError as e:
+            raise HTTPError(404, str(e))
+        except FunctionCallError as e:
+            raise HTTPError(500, e.message)
+        except APIError as e:
+            raise HTTPError(e.code, e.message)
+        except FunctionNotFound:
+            raise HTTPError(404, "No such function")
+        except Exception as e:
+            raise HTTPError(500, str(e))
 
     @coroutine
     def call(self, method_name, arguments):
         try:
             result = yield self.session.call(method_name, arguments)
         except NoSuchMethodError as e:
-            raise JsonRPCError(404, str(e))
+            raise JsonRPCError(404, self.session.name + " " + str(e))
         except FunctionCallError as e:
-            raise JsonRPCError(500, e.message)
+            raise JsonRPCError(500, self.session.name + " " + e.message)
         except APIError as e:
             raise JsonRPCError(e.code, e.message)
         except FunctionNotFound:
             raise JsonRPCError(404, "No such function")
+        except Exception as e:
+            raise JsonRPCError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)
@@ -65,7 +82,7 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
 
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
-        method_name = self.get_argument("method_name", "main")
+        method = self.get_argument("method", "main")
 
         try:
             args = ujson.loads(self.get_argument("args", "{}"))
@@ -74,7 +91,7 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
 
         try:
             result = yield fcalls.call(application_name, function_name, args,
-                                       method_name=method_name,
+                                       method_name=method,
                                        gamespace=gamespace_id,
                                        account=self.token.account)
 

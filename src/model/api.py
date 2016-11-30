@@ -22,7 +22,6 @@ class API(APIBase):
             data), *ignored)
 
     @deferred
-    @coroutine
     def get_my_profile(self, path="", *ignored):
 
         cached = self.profile_cache.get(path)
@@ -41,7 +40,6 @@ class API(APIBase):
         raise Return(profile)
 
     @deferred
-    @coroutine
     def update_my_profile(self, profile=None, path="", merge=True, *ignored):
 
         if not profile:
@@ -65,6 +63,5 @@ class API(APIBase):
         raise Return(profile)
 
     @deferred
-    @coroutine
     def sleep(self, period, *ignored):
         yield sleep(period)
