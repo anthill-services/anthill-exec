@@ -258,9 +258,7 @@ class CallSession(object):
         del self.engine
         self.context.leave()
 
-        logging.info("Session released: @{0} user {1} fn {2}".format(
-            self.gamespace, self.account_id, self.function_name
-        ))
+        logging.info("Session released: @{0}".format(self.name))
 
 
 class FunctionsCallModel(Model):
