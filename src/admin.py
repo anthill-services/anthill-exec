@@ -484,6 +484,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
         except FunctionNotFound:
             raise a.StreamCommandError(404, "No such function")
         except Exception as e:
+            logging.exception("Error while calling method {0}".format(method_name))
             raise a.StreamCommandError(500, str(e))
         finally:
             yield self._log(time.done())
@@ -515,7 +516,8 @@ class FunctionDebugStreamController(a.StreamAdminController):
             "result": result
         })
 
-    def on_close(self):
+    @coroutine
+    def closed(self):
         if self.session:
-            IOLoop.current().add_callback(self.session.release)
+            yield self.session.release(self.handler.close_code, self.handler.close_reason)
             self.session = None

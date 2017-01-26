@@ -9,8 +9,9 @@ from expiringdict import ExpiringDict
 
 
 class API(APIBase):
-    def __init__(self, env, ioloop, debug):
-        super(API, self).__init__(debug)
+    def __init__(self, env, debug, callback):
+        super(API, self).__init__(debug, callback)
+
         self.env = env
         self.profile_cache = ExpiringDict(10, 60)
 

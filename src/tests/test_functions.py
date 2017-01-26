@@ -70,9 +70,9 @@ class FunctionsTestCase(common.testing.ServerTestCase):
                     return a + b;
                 }
 
-                function main(args)
+                function main(args, api)
                 {
-                    res(sum(args[0], args[1]));
+                    api.res(sum(args[0], args[1]));
                 }
             """, checks=[
                 ([10, 5], 15),
@@ -100,9 +100,9 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         fn = yield self.functions.create_function(
             0, "test_api_error",
             """
-                function main(a, b)
+                function main(args, api)
                 {
-                    error(400, "bad_idea");
+                    throw error(400, "bad_idea");
                 }
             """, [])
 
@@ -116,10 +116,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         fn = yield self.functions.create_function(
             0, "test_obj",
             """
-                function main(args)
+                function main(args, api)
                 {
                     var data = args[0];
-                    res(data["a"] + data["b"]);
+                    api.res(data["a"] + data["b"]);
                 }
             """, [])
 
@@ -170,10 +170,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_sha256",
             """
 
-            function main(args)
+            function main(args, api)
             {
                 var message = args[0];
-                res(SHA256.hash(message));
+                api.res(SHA256.hash(message));
             }
 
             """, ["sha256"])
@@ -230,10 +230,14 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_sha256_session",
             """
 
-            function main(args)
+            function main(args, api)
             {
                 var message = args[0];
-                res(SHA256.hash(message));
+                var time = args[1];
+                api.sleep(time).done(function()
+                {
+                    api.res(SHA256.hash(message))
+                });
             }
 
             """, ["sha256_session"])
@@ -245,10 +249,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         try:
             res = yield [
-                session.call("main", [""]),
-                session.call("main", ["test"]),
-                session.call("main", ["1"]),
-                session.call("main", ["sha-256"])
+                session.call("main", ["", 0.5]),
+                session.call("main", ["test", 0.2]),
+                session.call("main", ["1", 1]),
+                session.call("main", ["sha-256", 0.1])
             ]
         finally:
             yield session.release()
@@ -263,15 +267,15 @@ class FunctionsTestCase(common.testing.ServerTestCase):
     def test_import(self):
         fn1 = yield self.functions.create_function(
             0, "test_a", """
-                function main(args)
+                function main(args, api)
                 {
-                    res(args["first"] + ":" + test_b(args["second"]));
+                    api.res(args["first"] + ":" + test_b(args["second"]));
                 }
             """, ["test_b"])
 
         fn2 = yield self.functions.create_function(
             0, "test_b", """
-                function test_b(second)
+                function test_b(second, api)
                 {
                     return "second:" + second;
                 }
@@ -307,14 +311,14 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         fn = yield self.functions.create_function(
             0, "test_parallel", """
-                function main(args)
+                function main(args, api)
                 {
                     var a = args[0];
                     var b = args[1];
 
-                    sleep(0.5).done(function()
+                    api.sleep(0.5).done(function()
                     {
-                        res(a + b);
+                        api.res(a + b);
                     });
                 }
             """, [])

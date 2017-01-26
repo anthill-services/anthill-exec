@@ -73,7 +73,7 @@ def deferred(f):
                     else:
                         d.resolve(f.result())
             except SyncTimeout.TimeoutError:
-                self._response.exception(FunctionCallError(
+                self.exception(FunctionCallError(
                     "Function call process timeout: function shouldn't be blocking and should rely "
                     "on async methods instead."))
             except JSError as e:
@@ -83,7 +83,7 @@ def deferred(f):
                 else:
                     exc = FunctionCallError(str(e) + "\n" + e.stackTrace)
 
-                self._response.exception(exc)
+                self.exception(exc)
 
         future = coroutine(f)(self, *args, **kwargs)
         IOLoop.current().add_future(future, done)
@@ -100,7 +100,7 @@ class APIUserError(object):
 
     @staticmethod
     def user(e):
-        return e.name == "APIUserError"
+        return hasattr(e, "name") and e.name == "APIUserError"
 
     @staticmethod
     def parse(e):
@@ -116,37 +116,20 @@ class APIUserError(object):
             return data[0], data[1]
 
 
-# noinspection PyMethodMayBeStatic
-class Response(object):
-    def __init__(self):
-        self.future = None
-
-    def set_response(self, future):
-        self.future = future
-
-    def exception(self, exc):
-        if self.future and not self.future.done():
-            self.future.set_exception(exc)
-
-    def res(self, result):
-        if self.future and not self.future.done():
-            self.future.set_result(convert(result))
-
-
 class APIBase(object):
-    def __init__(self, debug):
-        self._response = Response()
-        self._active = True
-        self._debug = debug
+    def __init__(self, debug, callback):
+        object.__setattr__(self, "_", False)
 
-        # private attributes locker
-        self._ = False
+        with self:
+            self._debug = debug
+            self._callback = callback
+            self._active = True
 
     def __enter__(self):
-        self._ = True
+        object.__setattr__(self, "_", True)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._ = False
+        object.__setattr__(self, "_", False)
 
     def __getattribute__(self, name):
         if object.__getattribute__(self, "_"):
@@ -157,8 +140,12 @@ class APIBase(object):
 
         return object.__getattribute__(self, name)
 
-    def release(self):
-        self._active = False
+    def __setattr__(self, name, value):
+        if not object.__getattribute__(self, "_"):
+            if name.startswith("_"):
+                return None
+
+        return object.__setattr__(self, name, value)
 
     def log(self, message, *ignored):
         with self:
@@ -169,19 +156,19 @@ class APIBase(object):
     def toDict(self):
         return {}
 
-    # noinspection PyMethodMayBeStatic
-    def error(self, *args):
-        if len(args) >= 2:
-            exception = APIUserError(args[0], args[1])
-        elif len(args) >= 1 and isinstance(args[0], Exception):
-            exception = APIUserError(500, str(args[0]))
-        else:
-            exception = APIUserError(500, "Internal Script Error")
-
-        return exception
+    def exception(self, exc):
+        with self:
+            cb = self._callback
+            if cb and not cb.done():
+                self._active = False
+                cb.set_exception(exc)
 
     def res(self, result):
-        object.__getattribute__(self, "_response").res(result)
+        with self:
+            cb = self._callback
+            if cb and not cb.done():
+                self._active = False
+                cb.set_result(convert(result))
 
 
 class FunctionCallError(Exception):
@@ -220,26 +207,35 @@ def __precompile__(functions):
         return result
 
 
+class JSAPIEnvironment(object):
+    def __init__(self, env):
+        self.env = env
+
+    # noinspection PyMethodMayBeStatic
+    def error(self, *args):
+        if len(args) >= 2:
+            exception = APIUserError(args[0], args[1])
+        elif len(args) >= 1 and isinstance(args[0], Exception):
+            exception = APIUserError(500, str(args[0]))
+        else:
+            exception = APIUserError(500, "Internal Script Error")
+
+        return exception
+
+
 class JSAPIContext(JSContext):
-    def __init__(self, env, debug):
-        from api import API
-
-        self.obj = API(env, IOLoop.current(), debug)
-        super(JSAPIContext, self).__init__(self.obj)
-
-    def set_response(self, future):
-
-        with self.obj:
-            self.obj._response.set_response(future)
+    def __init__(self, env):
+        super(JSAPIContext, self).__init__(JSAPIEnvironment(env))
+        self.env = env
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.obj.release()
         super(JSAPIContext, self).__exit__(exc_type, exc_value, traceback)
 
 
 class CallSession(object):
-    def __init__(self, model, function_name, functions, debug=None, **env):
-        self.context = JSAPIContext(env, debug)
+    def __init__(self, model, function_name, functions, debug, **env):
+        self.context = JSAPIContext(env)
+        self.debug = debug
         self.gamespace = env["gamespace"]
         self.account_id = env["account"]
         self.function_name = function_name
@@ -273,14 +269,22 @@ class CallSession(object):
 
     @coroutine
     def call(self, method_name, arguments):
-        result = yield self.model.__run__(self.context, method_name, arguments)
+        result = yield self.model.__run__(self.context, method_name, arguments, debug=self.debug)
         raise Return(result)
 
     def eval(self, text):
         return self.model.__eval__(self.context, str(text))
 
     @coroutine
-    def release(self):
+    def release(self, code=0, reason=""):
+
+        try:
+            yield self.model.__run__(self.context, "released", {"code": code, "reason": reason or ""})
+        except NoSuchMethodError:
+            pass
+        except Exception as e:
+            logging.info("Error while releasing: {0}".format(str(e)))
+
         del self.engine
         self.context.leave()
 
@@ -335,8 +339,8 @@ class FunctionsCallModel(Model):
         self.compile_pool.shutdown()
 
     @coroutine
-    def __run_context__(self, functions, method_name, arguments, debug, **env):
-        with JSAPIContext(env, debug) as context:
+    def __run_context__(self, functions, method_name, arguments, debug=None, **env):
+        with JSAPIContext(env) as context:
             with JSEngine() as engine:
                 for fn in functions:
                     try:
@@ -346,17 +350,14 @@ class FunctionsCallModel(Model):
                     except Exception as e:
                         raise FunctionCallError(str(e))
 
-                result = yield self.__run__(context, method_name, arguments)
+                result = yield self.__run__(context, method_name, arguments, debug=debug)
                 raise Return(result)
 
     # noinspection PyMethodMayBeStatic
     def __eval__(self, context, text):
-        future = Future()
-        context.set_response(future)
-
         try:
             with SyncTimeout(1):
-                return context.eval(text)
+                return convert(context.eval(text))
         except JSError as e:
             if APIUserError.user(e):
                 code, message = APIUserError.parse(e)
@@ -369,7 +370,8 @@ class FunctionsCallModel(Model):
             raise FunctionCallError(str(e))
 
     @coroutine
-    def __run__(self, context, method, arguments):
+    def __run__(self, context, method, arguments, debug=None):
+        from api import API
 
         if not isinstance(method, (str, unicode)):
             raise FunctionCallError("Method is not a string")
@@ -386,11 +388,12 @@ class FunctionsCallModel(Model):
             raise NoSuchMethodError(method)
 
         future = Future()
-        context.set_response(future)
+
+        run_api = API(context.env, debug=debug, callback=future)
 
         try:
             with SyncTimeout(1):
-                method_function.apply(method_function, [arguments])
+                method_function.apply(method_function, [arguments, run_api])
         except JSError as e:
             if APIUserError.user(e):
                 code, message = APIUserError.parse(e)
