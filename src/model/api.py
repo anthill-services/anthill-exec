@@ -14,11 +14,12 @@ class API(APIBase):
         self.env = env
         self.profile_cache = ExpiringDict(10, 60)
 
-    def log(self, data, *ignored):
-        super(API, self).log("JS: gs #{0} acc @{1} {2}".format(
+    def log(self, message, *ignored):
+        logging.info("JS: gs #{0} acc @{1} {2}".format(
             self.env["gamespace"],
             self.env["account"],
-            data), *ignored)
+            message))
+        super(API, self).log(message)
 
     @deferred
     def get_my_profile(self, path="", *ignored):

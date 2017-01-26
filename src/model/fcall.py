@@ -124,16 +124,6 @@ class Response(object):
     def set_response(self, future):
         self.future = future
 
-    def error(self, *args):
-        if len(args) >= 2:
-            exception = APIUserError(args[0], args[1])
-        elif len(args) >= 1 and isinstance(args[0], Exception):
-            exception = APIUserError(500, str(args[0]))
-        else:
-            exception = APIUserError(500, "Internal Script Error")
-
-        return exception
-
     def exception(self, exc):
         if self.future and not self.future.done():
             self.future.set_exception(exc)
@@ -147,18 +137,19 @@ class APIBase(object):
     def __init__(self, debug):
         self._response = Response()
         self._active = True
-        self._unlocked = False
+        self._debug = debug
 
-        self.debug = debug
+        # private attributes locker
+        self._ = False
 
     def __enter__(self):
-        self._unlocked = True
+        self._ = True
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self._unlocked = False
+        self._ = False
 
     def __getattribute__(self, name):
-        if object.__getattribute__(self, "_unlocked"):
+        if object.__getattribute__(self, "_"):
             return object.__getattribute__(self, name)
 
         if name.startswith("_"):
@@ -169,14 +160,25 @@ class APIBase(object):
     def release(self):
         self._active = False
 
-    def log(self, data, *ignored):
-        logging.info(data)
+    def log(self, message, *ignored):
+        with self:
+            d = self._debug
+            if d:
+                d.log(message)
 
-        if self.debug:
-            self.debug.log(data)
+    def toDict(self):
+        return {}
 
+    # noinspection PyMethodMayBeStatic
     def error(self, *args):
-        return object.__getattribute__(self, "_response").error(*args)
+        if len(args) >= 2:
+            exception = APIUserError(args[0], args[1])
+        elif len(args) >= 1 and isinstance(args[0], Exception):
+            exception = APIUserError(500, str(args[0]))
+        else:
+            exception = APIUserError(500, "Internal Script Error")
+
+        return exception
 
     def res(self, result):
         object.__getattribute__(self, "_response").res(result)
