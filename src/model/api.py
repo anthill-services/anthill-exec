@@ -12,7 +12,6 @@ class API(APIBase):
     def __init__(self, env, ioloop, debug):
         super(API, self).__init__(debug)
         self.env = env
-        self.ioloop = ioloop
         self.profile_cache = ExpiringDict(10, 60)
 
     def log(self, data, *ignored):

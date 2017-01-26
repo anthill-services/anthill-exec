@@ -1,22 +1,27 @@
 import json
 
 from tornado.gen import coroutine, Return
+from tornado.ioloop import IOLoop
+from tornado.websocket import WebSocketClosedError
 
 import common.admin as a
 
 from model.function import FunctionNotFound, FunctionExists, FunctionError, Imports
-from model.fcall import FunctionCallError, APIError
+from model.fcall import FunctionCallError, APIError, NoSuchMethodError
 
 from common.environment import AppNotFound
 from common.access import AccessToken
-from common import to_int
 from common.internal import Internal, InternalError
+from common.validate import validate
+from common import ElapsedTime
 
-import ujson
+from datetime import datetime
+import logging
 
 
 class ApplicationController(a.AdminController):
     @coroutine
+    @validate(record_id="str")
     def get(self, record_id):
 
         env_service = self.application.env_service
@@ -41,10 +46,8 @@ class ApplicationController(a.AdminController):
         raise a.Return(result)
 
     @coroutine
+    @validate(function_id="int")
     def bind(self, function_id=0):
-
-        function_id = to_int(function_id)
-
         if not function_id:
             raise a.ActionError("Nothing to bind")
 
@@ -78,7 +81,7 @@ class ApplicationController(a.AdminController):
                 "bind": a.method("Bind", "primary")
             }, data=data),
             a.links("Navigate", [
-                a.link("apps", "Go back"),
+                a.link("apps", "Go back", icon="chevron-left"),
                 a.link("/environment/app", "Manage app '{0}' at 'Environment' service.".format(data["app_name"]),
                        icon="link text-danger", record_id=data["app_record_id"]),
             ])
@@ -90,6 +93,7 @@ class ApplicationController(a.AdminController):
 
 class UnbindFunctionController(a.AdminController):
     @coroutine
+    @validate(function_id="int", record_id="str")
     def get(self, function_id, record_id):
 
         env_service = self.application.env_service
@@ -138,7 +142,7 @@ class ApplicationsController(a.AdminController):
                 for app_id, app_name in data["apps"].iteritems()
                 ]),
             a.links("Navigate", [
-                a.link("index", "Go back"),
+                a.link("index", "Go back", icon="chevron-left"),
                 a.link("/environment/apps", "Manage apps", icon="link text-danger"),
             ])
         ]
@@ -171,7 +175,7 @@ class FunctionsController(a.AdminController):
             a.notice("Notice", "Please note that the function should be bound "
                                "to the application in order to be called."),
             a.links("Navigate", [
-                a.link("index", "Go back"),
+                a.link("index", "Go back", icon="chevron-left"),
                 a.link("new_function", "New function", icon="plus"),
             ])
         ]
@@ -202,11 +206,12 @@ class NewFunctionController(a.AdminController):
                 "create": a.method("Create", "primary")
             }, data=data),
             a.links("Navigate", [
-                a.link("functions", "Go back")
+                a.link("functions", "Go back", icon="chevron-left")
             ])
         ]
 
     @coroutine
+    @validate(name="str_name", code="str", imports="str")
     def create(self, name, code, imports):
         functions = self.application.functions
 
@@ -247,13 +252,13 @@ class FunctionController(a.AdminController):
             a.form("Function", fields={
                 "name": a.field("Function Name", "text", "primary", "non-empty", order=2),
                 "imports": a.field("Function Imports", "tags", "primary", order=3),
-                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=1, height=800),
+                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=1, height=400),
             }, methods={
                 "update": a.method("Update", "primary"),
                 "delete": a.method("Delete", "danger")
             }, data=data),
             a.links("Navigate", [
-                a.link("functions", "Go back"),
+                a.link("functions", "Go back", icon="chevron-left"),
                 a.link("debug_function", "Debug this function", icon="bug",
                        function_id=self.context.get("function_id"))
             ])
@@ -274,6 +279,7 @@ class FunctionController(a.AdminController):
                          message="Function has been deleted")
 
     @coroutine
+    @validate(name="str_name", code="str", imports="str")
     def update(self, name, code, imports):
         functions = self.application.functions
 
@@ -293,6 +299,7 @@ class FunctionController(a.AdminController):
                          function_id=function_id)
 
     @coroutine
+    @validate(function_id="int")
     def get(self, function_id):
         functions = self.application.functions
 
@@ -320,121 +327,195 @@ class DebugFunctionController(a.AdminController):
             ], "Debug")
         ]
 
-        if "result" in data:
-            r.append(a.split([
-                a.form("Call Result", fields={
-                    "result": a.field("", "json", "primary", "non-empty", order=1, height=200)
-                }, methods={}, data=data, icon="bug"),
-                a.form("Log output", fields={
-                    "log": a.field("", "text", "primary", "non-empty", order=1, multiline=10)
-                }, methods={}, data=data, icon="bars")
-            ]))
+        if data["session"]:
+            r.extend([
+                a.script("static/admin/fn_debug.js",
+                         account=data["account"],
+                         application_name=data["application_name"],
+                         function_name=data["name"])
+            ])
+        else:
+            r.extend([
+                a.form("Debug function <b>{0}</b>".format(data["name"]), fields={
+                    "credential": a.field("Credential", "text", "primary", "non-empty", order=2),
+                    "application_name": a.field("Application Context", "select", "primary", "non-empty", order=3,
+                                                values=data["apps"])
+                }, methods={
+                    "start_session": a.method("Start debug session", "primary")
+                }, data=data, icon="bug"),
+            ])
 
         r.extend([
-            a.form("Debug function <b>{0}</b>".format(data["name"]), fields={
-                "arguments": a.field("Arguments Object "
-                                     "(will be passed as first argument <b>args</b> to the function <b>main</b>)",
-                                     "json", "primary", order=1, height=100),
-                "credential": a.field("Credential", "text", "primary", "non-empty", order=2),
-                "application_name": a.field("Application", "select", "primary", "non-empty", order=3,
-                                            values=data["apps"])
-            }, methods={
-                "run": a.method("Run", "primary")
-            }, data=data, icon="bug"),
-
             a.links("Navigate", [
-                a.link("function", "Go back", function_id=self.context.get("function_id"))
+                a.link("function", "Go back", icon="chevron-left", function_id=self.context.get("function_id"))
             ])
         ])
 
         return r
 
     @coroutine
-    def run(self, arguments, credential, application_name, **ignored):
-        functions = self.application.functions
-        fcalls = self.application.fcalls
-        env_service = self.application.env_service
-
-        internal = Internal()
-        try:
-            account = yield internal.request(
-                "login",
-                "get_account",
-                credential=credential)
-
-        except InternalError as e:
-            if e.code == 400:
-                raise a.ActionError("Failed to find credential: bad username")
-            if e.code == 404:
-                raise a.ActionError("Failed to find credential: no such user")
-
-            raise a.ActionError(e.body)
-        else:
-            account = account["id"]
-
-        apps = yield env_service.list_apps(self.gamespace)
-
+    @validate(arguments="load_json", credential="str", application_name="str")
+    def start_session(self, credential, application_name, **ignored):
         function_id = self.context.get("function_id")
 
-        try:
-            function = yield functions.get_function(self.gamespace, function_id)
-        except FunctionNotFound:
-            raise a.ActionError("No such function")
-
-        try:
-            args = ujson.loads(arguments)
-        except (KeyError, ValueError):
-            raise a.ActionError("Corrupted args.")
-
-        debug = fcalls.debug()
-
-        try:
-            result = yield fcalls.call(application_name, function.name, args,
-                                       debug=debug,
-                                       cache=False,
-                                       gamespace=self.gamespace,
-                                       account=account)
-
-        except FunctionCallError as e:
-            debug.log("Error: " + e.message)
-            result = str(e)
-        except APIError as e:
-            debug.log("Error: " + e.message)
-            result = str(e)
-        except FunctionNotFound:
-            raise a.ActionError("No such function")
-
-        if not isinstance(result, (str, dict, list)):
-            result = str(result)
-
-        raise a.Return({
-            "name": function.name,
-            "credential": credential,
-            "arguments": args,
-            "apps": apps,
-            "application_name": application_name,
-            "result": result,
-            "log": debug.collected_log
-        })
+        raise a.Redirect("debug_function",
+                         function_id=function_id,
+                         application_name=application_name,
+                         credential=credential)
 
     @coroutine
-    def get(self, function_id):
-        functions = self.application.functions
+    @validate(function_id="int", application_name="str_or_none", credential="str_or_none")
+    def get(self, function_id, application_name=None, credential=None):
         env_service = self.application.env_service
 
         apps = yield env_service.list_apps(self.gamespace)
 
+        functions = self.application.functions
+
         try:
             function = yield functions.get_function(self.gamespace, function_id)
         except FunctionNotFound:
             raise a.ActionError("No such function")
+
+        session = False
+        account = 0
+
+        if application_name and credential:
+            internal = Internal()
+            try:
+                account = yield internal.request(
+                    "login",
+                    "get_account",
+                    credential=credential)
+
+            except InternalError as e:
+                if e.code == 400:
+                    raise a.ActionError("Failed to find credential: bad username")
+                if e.code == 404:
+                    raise a.ActionError("Failed to find credential: no such user")
+
+                raise a.ActionError(e.body)
+            else:
+                account = account["id"]
+
+            session = True
 
         raise Return({
             "name": function.name,
-            "credential": self.token.name,
+            "application_name": application_name,
+            "credential": credential or self.token.name,
+            "session": session,
+            "account": account,
             "apps": apps,
             "arguments": {}
         })
 
     def access_scopes(self):
         return ["exec_admin"]
+
+
+class FunctionDebugStreamController(a.StreamAdminController):
+    def __init__(self, app, token, handler):
+        super(FunctionDebugStreamController, self).__init__(app, token, handler)
+
+        class Debug(object):
+            def __init__(self, controller):
+                self._controller = controller
+
+            # noinspection PyProtectedMember
+            def log(self, message):
+                IOLoop.current().add_callback(self._controller._log, message=message)
+
+        self.session = None
+        self.debug = Debug(self)
+
+    def access_scopes(self):
+        return ["exec_admin"]
+
+    @coroutine
+    def _log(self, message):
+        message = "[" + str(datetime.now()) + "] " + message
+        try:
+            yield self.rpc(self, "log", message=message)
+        except WebSocketClosedError:
+            pass
+
+    @coroutine
+    @validate(account="int", application_name="str_name", function_name="str_name")
+    def prepared(self, account, application_name, function_name):
+        fcalls = self.application.fcalls
+
+        if not account:
+            raise a.ActionError("Bad account")
+
+        try:
+            self.session = yield fcalls.session(
+                application_name, function_name, cache=False, debug=self.debug,
+                gamespace=self.gamespace, account=account)
+
+        except NoSuchMethodError as e:
+            raise a.StreamCommandError(404, str(e))
+        except FunctionCallError as e:
+            raise a.StreamCommandError(500, e.message)
+        except APIError as e:
+            raise a.StreamCommandError(e.code, e.message)
+        except FunctionNotFound:
+            raise a.StreamCommandError(404, "No function can be found for that application")
+        except Exception as e:
+            raise a.StreamCommandError(500, str(e))
+
+        logging.info("Session has been opened!")
+        yield self._log("Session started!")
+
+    @coroutine
+    @validate(method_name="str", arguments="json_dict")
+    def call(self, method_name, arguments):
+
+        time = ElapsedTime("Calling method {0}".format(method_name))
+
+        try:
+            result = yield self.session.call(method_name, arguments)
+        except NoSuchMethodError as e:
+            raise a.StreamCommandError(404, str(e))
+        except FunctionCallError as e:
+            raise a.StreamCommandError(500, e.message)
+        except APIError as e:
+            raise a.StreamCommandError(e.code, e.message)
+        except FunctionNotFound:
+            raise a.StreamCommandError(404, "No such function")
+        except Exception as e:
+            raise a.StreamCommandError(500, str(e))
+        finally:
+            yield self._log(time.done())
+
+        raise Return(result)
+
+    @coroutine
+    @validate(text="str")
+    def eval(self, text):
+
+        time = ElapsedTime("Evaluating")
+
+        try:
+            result = self.session.eval(text)
+        except NoSuchMethodError as e:
+            raise a.StreamCommandError(404, str(e))
+        except FunctionCallError as e:
+            raise a.StreamCommandError(500, e.message)
+        except APIError as e:
+            raise a.StreamCommandError(e.code, e.message)
+        except FunctionNotFound:
+            raise a.StreamCommandError(404, "No such function")
+        except Exception as e:
+            raise a.StreamCommandError(500, str(e))
+        finally:
+            yield self._log(time.done())
+
+        raise Return({
+            "result": result
+        })
+
+    def on_close(self):
+        if self.session:
+            IOLoop.current().add_callback(self.session.release)
+            self.session = None

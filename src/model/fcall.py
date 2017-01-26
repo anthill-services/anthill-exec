@@ -1,5 +1,5 @@
 from tornado.gen import coroutine, Return, Future, with_timeout, TimeoutError
-from tornado.ioloop import IOLoop, stack_context
+from tornado.ioloop import IOLoop
 
 from common.model import Model
 from common.access import InternalError
@@ -9,13 +9,19 @@ import datetime
 from concurrent.futures import ProcessPoolExecutor
 from common import ElapsedTime, SyncTimeout
 from common.options import options
+
 import logging
 import ujson
 
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
 
 try:
     from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, convert
 except ImportError:
+    # noinspection PyUnresolvedReferences
     from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, convert
 
 
@@ -43,18 +49,21 @@ class Deferred(object):
         return self
 
     def resolve(self, *args):
-        if self.obj.active and self.on_resolve:
-            self.on_resolve(*args)
+        with self.obj:
+            if self.obj._active and self.on_resolve:
+                self.on_resolve(*args)
 
     def reject(self, *args):
-        if self.obj.active and self.on_reject:
-            self.on_reject(*args)
+        with self.obj:
+            if self.obj._active and self.on_reject:
+                self.on_reject(*args)
 
 
 def deferred(f):
     def wrapped(self, *args, **kwargs):
         d = Deferred(self)
 
+        # noinspection PyShadowingNames
         def done(f):
             exc = f.exception()
             try:
@@ -64,7 +73,7 @@ def deferred(f):
                     else:
                         d.resolve(f.result())
             except SyncTimeout.TimeoutError:
-                self.response.exception(FunctionCallError(
+                self._response.exception(FunctionCallError(
                     "Function call process timeout: function shouldn't be blocking and should rely "
                     "on async methods instead."))
             except JSError as e:
@@ -74,7 +83,7 @@ def deferred(f):
                 else:
                     exc = FunctionCallError(str(e) + "\n" + e.stackTrace)
 
-                self.response.exception(exc)
+                self._response.exception(exc)
 
         future = coroutine(f)(self, *args, **kwargs)
         IOLoop.current().add_future(future, done)
@@ -107,6 +116,7 @@ class APIUserError(object):
             return data[0], data[1]
 
 
+# noinspection PyMethodMayBeStatic
 class Response(object):
     def __init__(self):
         self.future = None
@@ -135,12 +145,29 @@ class Response(object):
 
 class APIBase(object):
     def __init__(self, debug):
-        self.response = Response()
-        self.active = True
+        self._response = Response()
+        self._active = True
+        self._unlocked = False
+
         self.debug = debug
 
+    def __enter__(self):
+        self._unlocked = True
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._unlocked = False
+
+    def __getattribute__(self, name):
+        if object.__getattribute__(self, "_unlocked"):
+            return object.__getattribute__(self, name)
+
+        if name.startswith("_"):
+            return None
+
+        return object.__getattribute__(self, name)
+
     def release(self):
-        self.active = False
+        self._active = False
 
     def log(self, data, *ignored):
         logging.info(data)
@@ -149,10 +176,10 @@ class APIBase(object):
             self.debug.log(data)
 
     def error(self, *args):
-        return self.response.error(*args)
+        return object.__getattribute__(self, "_response").error(*args)
 
     def res(self, result):
-        self.response.res(result)
+        object.__getattribute__(self, "_response").res(result)
 
 
 class FunctionCallError(Exception):
@@ -173,14 +200,6 @@ class CompiledFunction(object):
         self.name = name
         self.source = source
         self.precompiled = precompiled
-
-
-class Debug(object):
-    def __init__(self):
-        self.collected_log = ""
-
-    def log(self, data):
-        self.collected_log += data + "\n"
 
 
 def __precompile__(functions):
@@ -207,7 +226,9 @@ class JSAPIContext(JSContext):
         super(JSAPIContext, self).__init__(self.obj)
 
     def set_response(self, future):
-        self.obj.response.set_response(future)
+
+        with self.obj:
+            self.obj._response.set_response(future)
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.obj.release()
@@ -215,8 +236,8 @@ class JSAPIContext(JSContext):
 
 
 class CallSession(object):
-    def __init__(self, model, function_name, functions, **env):
-        self.context = JSAPIContext(env, False)
+    def __init__(self, model, function_name, functions, debug=None, **env):
+        self.context = JSAPIContext(env, debug)
         self.gamespace = env["gamespace"]
         self.account_id = env["account"]
         self.function_name = function_name
@@ -253,6 +274,9 @@ class CallSession(object):
         result = yield self.model.__run__(self.context, method_name, arguments)
         raise Return(result)
 
+    def eval(self, text):
+        return self.model.__eval__(self.context, str(text))
+
     @coroutine
     def release(self):
         del self.engine
@@ -272,7 +296,7 @@ class FunctionsCallModel(Model):
         self.saved_code = ExpiringDict(max_len=64, max_age_seconds=60)
 
     @coroutine
-    def prepare(self, gamespace_id, application_name, function_name, cache=True):
+    def prepare(self, gamespace_id, application_name, function_name, cache=True, debug=None):
         key = str(gamespace_id) + ":" + str(function_name)
 
         if cache:
@@ -282,6 +306,9 @@ class FunctionsCallModel(Model):
 
         if not result:
             logging.info("Compiling function '{0}'...".format(function_name))
+
+            if debug:
+                debug.log("Compiling function '{0}'...".format(function_name))
 
             # gather all functions with dependent functions (a dict name: source)
             functions = (yield self.functions.get_function_with_dependencies(
@@ -319,6 +346,25 @@ class FunctionsCallModel(Model):
 
                 result = yield self.__run__(context, method_name, arguments)
                 raise Return(result)
+
+    # noinspection PyMethodMayBeStatic
+    def __eval__(self, context, text):
+        future = Future()
+        context.set_response(future)
+
+        try:
+            with SyncTimeout(1):
+                return context.eval(text)
+        except JSError as e:
+            if APIUserError.user(e):
+                code, message = APIUserError.parse(e)
+                raise APIError(code, message)
+
+            raise FunctionCallError(str(e) + "\n" + e.stackTrace)
+        except SyncTimeout.TimeoutError:
+            raise FunctionCallError("Eval timeout.")
+        except Exception as e:
+            raise FunctionCallError(str(e))
 
     @coroutine
     def __run__(self, context, method, arguments):
@@ -364,15 +410,12 @@ class FunctionsCallModel(Model):
         else:
             raise Return(result)
 
-    def debug(self):
-        return Debug()
-
     @coroutine
-    def session(self, application_name, function_name, cache=True, **env):
+    def session(self, application_name, function_name, cache=True, debug=None, **env):
 
         t = ElapsedTime("Session {0}/{1} creation".format(application_name, function_name))
-        fns = yield self.prepare(env["gamespace"], application_name, function_name, cache)
-        session = CallSession(self, function_name, fns, **env)
+        fns = yield self.prepare(env["gamespace"], application_name, function_name, cache, debug=debug)
+        session = CallSession(self, function_name, fns, debug=debug, **env)
         yield session.init()
         logging.info(t.done())
 

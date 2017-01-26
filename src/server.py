@@ -55,6 +55,11 @@ class ExecServer(common.server.Server):
             "debug_function": admin.DebugFunctionController
         }
 
+    def get_admin_stream(self):
+        return {
+            "stream_debug": admin.FunctionDebugStreamController
+        }
+
     def get_metadata(self):
         return {
             "title": "Exec",

@@ -176,7 +176,10 @@ class FunctionsModel(Model):
             for fn in functions
         }
 
-        result[fn.name] = str(fn.code)
+        try:
+            result[fn.name] = str(fn.code)
+        except UnicodeEncodeError:
+            raise FunctionError("Unicode characters in source code is not supported")
 
         raise Return(result)
 
