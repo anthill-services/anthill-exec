@@ -45,15 +45,49 @@
             this.body = $('<div class="panel-body"></div>').appendTo(this.panel);
 
             this.sandbox = $('<pre class="output" style="height: 250px"></pre>').appendTo(this.body);
+            this.input = $('<input type="text" class="form-control" ' +
+                'placeholder="Type here to evaluate">').appendTo(this.body);
+
+            this.input.keyup(function(event)
+            {
+                if(event.keyCode == 13)
+                {
+                    var text = zis.input.val();
+                    if (text)
+                    {
+                        var _log = zis.log('<i class="fa fa-refresh fa-spin" aria-hidden="true"></i> ' +
+                            '<b>Evaluating</b>: ' + text);
+
+                        var _notify = notify_progress("Evaluating: " + text);
+
+                        zis.ws.request("eval", {
+                            "text": text
+                        }).done(function (payload) {
+
+                            var result = payload["result"];
+
+                            _notify.close();
+                            _log.html('<b>Evaluating</b>: ' + text);
+                            zis.log('<i class="fa fa-check" aria-hidden="true"></i> ' +
+                                JSON.stringify(result))
+                        }).fail(function (code, message, data) {
+                            _notify.close();
+                            _log.html('<b>Evaluating</b>: ' + text);
+                            notify_error("Error " + code + ": " + message);
+                            zis.log('<i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ' +
+                                'Error: ' + code + ": " + message)
+                        });
+
+                        zis.input.val('');
+                    }
+                }
+            });
 
             this.tabs_header = $('<ul class="nav nav-tabs" data-tabs="tabs">' +
                 '<li><a href="#server_status" id="server_status_header" data-toggle="tab"></a></li>' +
 
                 '<li class="active"><a href="#call_method" id="call_method_header" data-toggle="tab">' +
                 '<i class="fa fa-play" aria-hidden="true"></i> Call a method</a></li>' +
-
-                '<li><a href="#eval_text" id="eval_text_header" data-toggle="tab">' +
-                '<i class="fa fa-calculator" aria-hidden="true"></i> Evaluate</a></li>' +
 
                 '</ul>').appendTo(div);
 
@@ -62,7 +96,6 @@
                 '</div>').appendTo(div);
 
             var call_method = $('<div class="tab-pane active" id="call_method"></div>').appendTo(this.tabs_content);
-            var eval_text = $('<div class="tab-pane" id="eval_text"></div>').appendTo(this.tabs_content);
 
             render_node({
                 "class": "form",
@@ -117,49 +150,6 @@
                     return false;
                 }
             }, call_method);
-
-            render_node({
-                "class": "form",
-                "context": {},
-                "methods": {
-                    "post": {"style": "primary", "title": "Evaluate"}
-                },
-                "fields": {
-                    "text": {
-                        "style": "primary", "validation": "non-empty", "type": "text", "value": "true",
-                        "title": "Code To Evaluate", "order": 1, "multiline": 2
-                    }
-                },
-                "title": "Evaluate a variable",
-                "callback": function (fields) {
-                    var text = fields["text"];
-
-                    var _log = zis.log('<i class="fa fa-refresh fa-spin" aria-hidden="true"></i> ' +
-                        '<b>Evaluating</b>: ' + text);
-
-                    var _notify = notify_progress("Evaluating: " + text);
-
-                    zis.ws.request("eval", {
-                        "text": text
-                    }).done(function (payload) {
-
-                        var result = payload["result"];
-
-                        _notify.close();
-                        _log.html('<b>Evaluating</b>: ' + text);
-                        zis.log('<i class="fa fa-check" aria-hidden="true"></i> ' +
-                            JSON.stringify(result))
-                    }).fail(function (code, message, data) {
-                        _notify.close();
-                        _log.html('<b>Evaluating</b>: ' + text);
-                        notify_error("Error " + code + ": " + message);
-                        zis.log('<i class="fa fa-exclamation-triangle" aria-hidden="true"></i> ' +
-                            'Error: ' + code + ": " + message)
-                    });
-
-                    return false;
-                }
-            }, eval_text);
 
             this.status('Connecting...', 'refresh', 'info');
 

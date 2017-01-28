@@ -18,15 +18,27 @@ try:
 except ImportError:
     from StringIO import StringIO
 
-try:
-    from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, convert
-except ImportError:
-    # noinspection PyUnresolvedReferences
-    from pyv8.PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, convert
+
+from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, JSObject, JSFunction
+
+
+# contribute by marc boeker <http://code.google.com/u/marc.boeker/>
+def convert(obj):
+    if type(obj) == JSArray:
+        return [convert(v) for v in obj]
+
+    if type(obj) == JSFunction:
+        return "[function Function]"
+
+    if type(obj) == JSObject:
+        return dict([[str(k), convert(obj.__getattr__(str(k)))] for k in obj.__members__])
+
+    return obj
 
 
 class APIError(Exception):
     def __init__(self, code=0, message=None):
+        super(APIError, self).__init__(code, message)
         self.code = code
         self.message = message
 
@@ -35,10 +47,9 @@ class APIError(Exception):
 
 
 class Deferred(object):
-    def __init__(self, obj):
+    def __init__(self):
         self.on_resolve = None
         self.on_reject = None
-        self.obj = obj
 
     def done(self, func):
         self.on_resolve = func
@@ -49,52 +60,62 @@ class Deferred(object):
         return self
 
     def resolve(self, *args):
-        with self.obj:
-            if self.obj._active and self.on_resolve:
-                self.on_resolve(*args)
+        if self.on_resolve:
+            self.on_resolve(*args)
 
     def reject(self, *args):
-        with self.obj:
-            if self.obj._active and self.on_reject:
-                self.on_reject(*args)
+        if self.on_reject:
+            self.on_reject(*args)
 
 
-def deferred(f):
-    def wrapped(self, *args, **kwargs):
-        d = Deferred(self)
+class DeferredAPI(object):
+    def __init__(self, api, context):
+        super(DeferredAPI, self).__init__()
+
+        self._context = context
+        self.api = api
+
+    def _exception(self, exc):
+        self.api._exception(exc)
+
+
+def deferred(method):
+    def wrapper(self, *args, **ignored):
+        d = Deferred()
 
         # noinspection PyShadowingNames
-        def done(f):
-            exc = f.exception()
-            try:
-                with SyncTimeout(1):
-                    if exc:
-                        d.reject(exc)
+        def done(future):
+            with self._context:
+                exc = future.exception()
+                try:
+                    with SyncTimeout(1):
+                        if exc:
+                            d.reject(*exc.args)
+                        else:
+                            d.resolve(future.result())
+                except SyncTimeout.TimeoutError:
+                    self._exception(FunctionCallError(
+                        "Function call process timeout: function shouldn't be blocking and should rely "
+                        "on async methods instead."))
+                except JSError as e:
+                    if APIUserError.user(e):
+                        code, message = APIUserError.parse(e)
+                        exc = APIError(code, message)
                     else:
-                        d.resolve(f.result())
-            except SyncTimeout.TimeoutError:
-                self.exception(FunctionCallError(
-                    "Function call process timeout: function shouldn't be blocking and should rely "
-                    "on async methods instead."))
-            except JSError as e:
-                if APIUserError.user(e):
-                    code, message = APIUserError.parse(e)
-                    exc = APIError(code, message)
-                else:
-                    exc = FunctionCallError(str(e) + "\n" + e.stackTrace)
+                        exc = FunctionCallError(str(e) + "\n" + e.stackTrace)
 
-                self.exception(exc)
+                    self._exception(exc)
 
-        future = coroutine(f)(self, *args, **kwargs)
+        future = coroutine(method)(self, *map(convert, args))
         IOLoop.current().add_future(future, done)
 
         return d
-
-    return wrapped
+    return wrapper
 
 
 class APIUserError(object):
     def __init__(self, code, message):
+        self.args = [code, message]
         self.message = ujson.dumps([code, message])
         self.name = "APIUserError"
 
@@ -117,62 +138,38 @@ class APIUserError(object):
 
 
 class APIBase(object):
-    def __init__(self, debug, callback):
-        object.__setattr__(self, "_", False)
+    def __init__(self, context, debug, callback):
+        super(APIBase, self).__init__()
 
-        with self:
-            self._debug = debug
-            self._callback = callback
-            self._active = True
-
-    def __enter__(self):
-        object.__setattr__(self, "_", True)
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        object.__setattr__(self, "_", False)
-
-    def __getattribute__(self, name):
-        if object.__getattribute__(self, "_"):
-            return object.__getattribute__(self, name)
-
-        if name.startswith("_"):
-            return None
-
-        return object.__getattribute__(self, name)
-
-    def __setattr__(self, name, value):
-        if not object.__getattribute__(self, "_"):
-            if name.startswith("_"):
-                return None
-
-        return object.__setattr__(self, name, value)
+        self._context = context
+        self._debug = debug
+        self._callback = callback
+        self._active = True
 
     def log(self, message, *ignored):
-        with self:
-            d = self._debug
-            if d:
-                d.log(message)
+        d = self._debug
+        if d:
+            d.log(message)
 
     def toDict(self):
         return {}
 
-    def exception(self, exc):
-        with self:
-            cb = self._callback
-            if cb and not cb.done():
-                self._active = False
-                cb.set_exception(exc)
+    def _exception(self, exc):
+        cb = self._callback
+        if cb and not cb.done():
+            self._active = False
+            cb.set_exception(exc)
 
     def res(self, result):
-        with self:
-            cb = self._callback
-            if cb and not cb.done():
-                self._active = False
-                cb.set_result(convert(result))
+        cb = self._callback
+        if cb and not cb.done():
+            self._active = False
+            cb.set_result(convert(result))
 
 
 class FunctionCallError(Exception):
     def __init__(self, message=None):
+        super(FunctionCallError, self).__init__(message)
         self.message = message
 
     def __str__(self):
@@ -210,6 +207,8 @@ def __precompile__(functions):
 class JSAPIEnvironment(object):
     def __init__(self, env):
         self.env = env
+        self.cache = ExpiringDict(10, 60)
+        self._test = 1
 
     # noinspection PyMethodMayBeStatic
     def error(self, *args):
@@ -225,11 +224,9 @@ class JSAPIEnvironment(object):
 
 class JSAPIContext(JSContext):
     def __init__(self, env):
-        super(JSAPIContext, self).__init__(JSAPIEnvironment(env))
+        self.obj = JSAPIEnvironment(env)
         self.env = env
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        super(JSAPIContext, self).__exit__(exc_type, exc_value, traceback)
+        super(JSAPIContext, self).__init__(self.obj)
 
 
 class CallSession(object):
@@ -246,21 +243,21 @@ class CallSession(object):
 
     @coroutine
     def init(self):
-        self.context.enter()
 
-        for fn in self.functions:
-            try:
-                with SyncTimeout(5):
-                    self.engine.compile(fn.source, precompiled=fn.precompiled).run()
-            except JSError as e:
-                raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
-            except SyncTimeout.TimeoutError:
-                raise FunctionCallError(
-                    "Function compile timeout: function shouldn't be blocking and should rely "
-                    "on async methods instead.")
+        with self.context:
+            for fn in self.functions:
+                try:
+                    with SyncTimeout(5):
+                        self.engine.compile(fn.source, precompiled=fn.precompiled).run()
+                except JSError as e:
+                    raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
+                except SyncTimeout.TimeoutError:
+                    raise FunctionCallError(
+                        "Function compile timeout: function shouldn't be blocking and should rely "
+                        "on async methods instead.")
 
-            except Exception as e:
-                raise FunctionCallError(str(e))
+                except Exception as e:
+                    raise FunctionCallError(str(e))
 
         self.name = "gamespace {0} / user @{1} / function '{2}'".format(
             self.gamespace, self.account_id, self.function_name)
@@ -286,7 +283,6 @@ class CallSession(object):
             logging.info("Error while releasing: {0}".format(str(e)))
 
         del self.engine
-        self.context.leave()
 
         logging.info("Session released: @{0}".format(self.name))
 
@@ -338,26 +334,29 @@ class FunctionsCallModel(Model):
     def stopped(self):
         self.compile_pool.shutdown()
 
+    # noinspection PyTypeChecker
     @coroutine
     def __run_context__(self, functions, method_name, arguments, debug=None, **env):
-        with JSAPIContext(env) as context:
-            with JSEngine() as engine:
-                for fn in functions:
-                    try:
-                        engine.compile(fn.source, name=str(fn.name), line=-1, col=-1, precompiled=fn.precompiled).run()
-                    except JSError as e:
-                        raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
-                    except Exception as e:
-                        raise FunctionCallError(str(e))
+        context = JSAPIContext(env)
 
-                result = yield self.__run__(context, method_name, arguments, debug=debug)
-                raise Return(result)
+        with JSEngine() as engine:
+            for fn in functions:
+                try:
+                    engine.compile(fn.source, name=str(fn.name), line=-1, col=-1, precompiled=fn.precompiled).run()
+                except JSError as e:
+                    raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
+                except Exception as e:
+                    raise FunctionCallError(str(e))
+
+            result = yield self.__run__(context, method_name, arguments, debug=debug)
+            raise Return(result)
 
     # noinspection PyMethodMayBeStatic
     def __eval__(self, context, text):
         try:
-            with SyncTimeout(1):
-                return convert(context.eval(text))
+            with context:
+                with SyncTimeout(1):
+                    result = convert(context.eval(text))
         except JSError as e:
             if APIUserError.user(e):
                 code, message = APIUserError.parse(e)
@@ -369,6 +368,8 @@ class FunctionsCallModel(Model):
         except Exception as e:
             raise FunctionCallError(str(e))
 
+        return result
+
     @coroutine
     def __run__(self, context, method, arguments, debug=None):
         from api import API
@@ -379,41 +380,44 @@ class FunctionsCallModel(Model):
         if method.startswith("_"):
             raise FunctionCallError("Cannot call such method")
 
-        if not hasattr(context.locals, method):
-            raise NoSuchMethodError(method)
+        with context:
+            if not hasattr(context.locals, method):
+                raise NoSuchMethodError(method)
 
-        method_function = getattr(context.locals, method, None)
+            method_function = getattr(context.locals, method, None)
 
-        if not method_function:
-            raise NoSuchMethodError(method)
+            if not method_function:
+                raise NoSuchMethodError(method)
 
-        future = Future()
+            future = Future()
 
-        run_api = API(context.env, debug=debug, callback=future)
+            run_api = API(context, debug=debug, callback=future)
 
-        try:
-            with SyncTimeout(1):
-                method_function.apply(method_function, [arguments, run_api])
-        except JSError as e:
-            if APIUserError.user(e):
-                code, message = APIUserError.parse(e)
-                raise APIError(code, message)
+            try:
+                with SyncTimeout(1):
+                    method_function.apply(method_function, [arguments, run_api])
+            except JSError as e:
+                if APIUserError.user(e):
+                    code, message = APIUserError.parse(e)
+                    raise APIError(code, message)
 
-            raise FunctionCallError(str(e) + "\n" + e.stackTrace)
-        except SyncTimeout.TimeoutError:
-            raise FunctionCallError("Function call process timeout: function shouldn't be blocking and should rely "
-                                    "on async methods instead.")
-        except Exception as e:
-            raise FunctionCallError(str(e))
+                raise FunctionCallError(str(e) + "\n" + e.stackTrace)
+            except SyncTimeout.TimeoutError:
+                raise FunctionCallError("Function call process timeout: function shouldn't be blocking and should rely "
+                                        "on async methods instead.")
+            except APIError:
+                raise
+            except Exception as e:
+                raise FunctionCallError(str(e))
 
-        try:
-            result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
-        except TimeoutError:
-            raise FunctionCallError("Function call timeout")
-        except InternalError as e:
-            raise APIError(e.code, "Internal error: " + e.body)
-        else:
-            raise Return(result)
+            try:
+                result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
+            except TimeoutError:
+                raise FunctionCallError("Function call timeout")
+            except InternalError as e:
+                raise APIError(e.code, "Internal error: " + e.body)
+            else:
+                raise Return(result)
 
     @coroutine
     def session(self, application_name, function_name, cache=True, debug=None, **env):

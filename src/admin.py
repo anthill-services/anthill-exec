@@ -8,6 +8,7 @@ import common.admin as a
 
 from model.function import FunctionNotFound, FunctionExists, FunctionError, Imports
 from model.fcall import FunctionCallError, APIError, NoSuchMethodError
+from model.api import AUTOCOMPLETE_LIST
 
 from common.environment import AppNotFound
 from common.access import AccessToken
@@ -230,9 +231,9 @@ class NewFunctionController(a.AdminController):
 
     @coroutine
     def get(self):
-        example = ("function main()\n"
+        example = ("function main(args, api)\n"
                    "{\n"
-                   "    res('test');\n"
+                   "    api.res('Hello, world!');\n"
                    "}")
 
         raise Return({
@@ -252,7 +253,8 @@ class FunctionController(a.AdminController):
             a.form("Function", fields={
                 "name": a.field("Function Name", "text", "primary", "non-empty", order=2),
                 "imports": a.field("Function Imports", "tags", "primary", order=3),
-                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=1, height=400),
+                "code": a.field("Javascript Code", "code", "primary", "non-empty", order=1, height=400,
+                                autocomplete=data["autocomplete"]),
             }, methods={
                 "update": a.method("Update", "primary"),
                 "delete": a.method("Delete", "danger")
@@ -311,7 +313,8 @@ class FunctionController(a.AdminController):
         raise Return({
             "code": function.code,
             "name": function.name,
-            "imports": function.imports
+            "imports": function.imports,
+            "autocomplete": AUTOCOMPLETE_LIST
         })
 
     def access_scopes(self):
@@ -434,7 +437,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
 
     @coroutine
     def _log(self, message):
-        message = "[" + str(datetime.now()) + "] " + message
+        message = "[" + str(datetime.now()) + "] " + str(message)
         try:
             yield self.rpc(self, "log", message=message)
         except WebSocketClosedError:
