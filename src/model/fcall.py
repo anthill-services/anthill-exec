@@ -340,13 +340,14 @@ class FunctionsCallModel(Model):
         context = JSAPIContext(env)
 
         with JSEngine() as engine:
-            for fn in functions:
-                try:
-                    engine.compile(fn.source, name=str(fn.name), line=-1, col=-1, precompiled=fn.precompiled).run()
-                except JSError as e:
-                    raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
-                except Exception as e:
-                    raise FunctionCallError(str(e))
+            with context:
+                for fn in functions:
+                    try:
+                        engine.compile(fn.source, name=str(fn.name), line=-1, col=-1, precompiled=fn.precompiled).run()
+                    except JSError as e:
+                        raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
+                    except Exception as e:
+                        raise FunctionCallError(str(e))
 
             result = yield self.__run__(context, method_name, arguments, debug=debug)
             raise Return(result)
@@ -380,6 +381,8 @@ class FunctionsCallModel(Model):
         if method.startswith("_"):
             raise FunctionCallError("Cannot call such method")
 
+        future = None
+
         with context:
             if not hasattr(context.locals, method):
                 raise NoSuchMethodError(method)
@@ -410,14 +413,14 @@ class FunctionsCallModel(Model):
             except Exception as e:
                 raise FunctionCallError(str(e))
 
-            try:
-                result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
-            except TimeoutError:
-                raise FunctionCallError("Function call timeout")
-            except InternalError as e:
-                raise APIError(e.code, "Internal error: " + e.body)
-            else:
-                raise Return(result)
+        try:
+            result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
+        except TimeoutError:
+            raise FunctionCallError("Function call timeout")
+        except InternalError as e:
+            raise APIError(e.code, "Internal error: " + e.body)
+        else:
+            raise Return(result)
 
     @coroutine
     def session(self, application_name, function_name, cache=True, debug=None, **env):
