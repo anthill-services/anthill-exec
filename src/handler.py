@@ -35,8 +35,7 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
             self.session = yield fcalls.session(
                 application_name, function_name,
                 gamespace=gamespace_id,
-                account=token.account,
-                application_name=application_name)
+                account=token.account)
 
         except NoSuchMethodError as e:
             raise HTTPError(404, str(e))

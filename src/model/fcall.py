@@ -264,10 +264,8 @@ class CallSession(object):
 
         logging.info("Session started: " + self.name)
 
-    @coroutine
     def call(self, method_name, arguments):
-        result = yield self.model.__run__(self.context, method_name, arguments, debug=self.debug)
-        raise Return(result)
+        return self.model.__run__(self.context, method_name, arguments, debug=self.debug)
 
     def eval(self, text):
         return self.model.__eval__(self.context, str(text))
@@ -424,6 +422,8 @@ class FunctionsCallModel(Model):
 
     @coroutine
     def session(self, application_name, function_name, cache=True, debug=None, **env):
+
+        env["application_name"] = application_name
 
         t = ElapsedTime("Session {0}/{1} creation".format(application_name, function_name))
         fns = yield self.prepare(env["gamespace"], application_name, function_name, cache, debug=debug)

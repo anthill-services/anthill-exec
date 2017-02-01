@@ -11,14 +11,14 @@ class ConfigAPI(DeferredAPI):
         self.internal = Internal()
 
     @deferred
-    def get(self, app_name, app_version, *ignored):
+    def get(self, app_version, *ignored):
 
-        if not isinstance(app_name, (unicode, str)):
-            raise APIError(code=400, message="app_name should be a string")
         if not isinstance(app_version, (unicode, str)):
             raise APIError(code=400, message="app_version should be a string")
 
         obj = self._context.obj
+
+        app_name = obj.env["application_name"]
 
         key = "config:" + str(app_name) + "/" + str(app_version)
 
