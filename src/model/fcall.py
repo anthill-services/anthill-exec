@@ -68,6 +68,20 @@ class Deferred(object):
             self.on_reject(*args)
 
 
+class CompletedDeferred(object):
+    def __init__(self, code, message):
+        self.code = code
+        self.message = message
+
+    def done(self, func):
+        if self.code is True:
+            func(True)
+
+    def fail(self, func):
+        if self.code is not True:
+            func(self.code, self.message)
+
+
 class DeferredAPI(object):
     def __init__(self, api, context):
         super(DeferredAPI, self).__init__()
@@ -150,6 +164,10 @@ class APIBase(object):
         d = self._debug
         if d:
             d.log(message)
+
+    # noinspection PyMethodMayBeStatic
+    def completed(self, code, message=""):
+        return CompletedDeferred(code, message)
 
     def toDict(self):
         return {}
