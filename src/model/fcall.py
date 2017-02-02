@@ -76,10 +76,12 @@ class CompletedDeferred(object):
     def done(self, func):
         if self.code is True:
             func(True)
+        return self
 
     def fail(self, func):
         if self.code is not True:
             func(self.code, self.message)
+        return self
 
 
 class DeferredAPI(object):
