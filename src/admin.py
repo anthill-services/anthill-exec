@@ -170,7 +170,7 @@ class FunctionsController(a.AdminController):
         return [
             a.breadcrumbs([], "Functions"),
             a.links("Functions", [
-                a.link("function", f.name, icon="code", function_id=f.function_id)
+                a.link("function", f.name, icon="code", function_name=f.name)
                 for f in data["functions"]
                 ]),
             a.notice("Notice", "Please note that the function should be bound "
@@ -219,7 +219,7 @@ class NewFunctionController(a.AdminController):
         imports = Imports.parse(imports)
 
         try:
-            function_id = yield functions.create_function(self.gamespace, name, code, imports)
+            yield functions.create_function(self.gamespace, name, code, imports)
         except FunctionExists:
             raise a.ActionError("Such function already exists!")
         except FunctionError as e:
@@ -227,7 +227,7 @@ class NewFunctionController(a.AdminController):
 
         raise a.Redirect("function",
                          message="New function has been created",
-                         function_id=function_id)
+                         function_name=name)
 
     @coroutine
     def get(self):
@@ -258,11 +258,11 @@ class FunctionController(a.AdminController):
             }, methods={
                 "update": a.method("Update", "primary"),
                 "delete": a.method("Delete", "danger")
-            }, data=data),
+            }, data=data, id="function"),
             a.links("Navigate", [
                 a.link("functions", "Go back", icon="chevron-left"),
                 a.link("debug_function", "Debug this function", icon="bug",
-                       function_id=self.context.get("function_id"))
+                       function_id=data["function_id"])
             ])
         ]
 
@@ -270,7 +270,14 @@ class FunctionController(a.AdminController):
     def delete(self, **ignored):
         functions = self.application.functions
 
-        function_id = self.context.get("function_id")
+        function_name = self.context.get("function_name")
+
+        try:
+            function = yield functions.find_function(self.gamespace, function_name)
+        except FunctionNotFound:
+            raise a.ActionError("No such function")
+
+        function_id = function.function_id
 
         try:
             yield functions.delete_function(self.gamespace, function_id)
@@ -285,7 +292,14 @@ class FunctionController(a.AdminController):
     def update(self, name, code, imports):
         functions = self.application.functions
 
-        function_id = self.context.get("function_id")
+        function_name = self.context.get("function_name")
+
+        try:
+            function = yield functions.find_function(self.gamespace, function_name)
+        except FunctionNotFound:
+            raise a.ActionError("No such function")
+
+        function_id = function.function_id
 
         imports = Imports.parse(imports)
 
@@ -298,21 +312,22 @@ class FunctionController(a.AdminController):
 
         raise a.Redirect("function",
                          message="Function has been updated",
-                         function_id=function_id)
+                         function_name=function_name)
 
     @coroutine
-    @validate(function_id="int")
-    def get(self, function_id):
+    @validate(function_name="str_name")
+    def get(self, function_name):
         functions = self.application.functions
 
         try:
-            function = yield functions.get_function(self.gamespace, function_id)
+            function = yield functions.find_function(self.gamespace, function_name)
         except FunctionNotFound:
             raise a.ActionError("No such function")
 
         raise Return({
             "code": function.code,
             "name": function.name,
+            "function_id": function.function_id,
             "imports": function.imports,
             "autocomplete": AUTOCOMPLETE_LIST
         })
