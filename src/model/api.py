@@ -1,8 +1,11 @@
 import logging
 
-from fcall import APIBase, APIError, deferred, DeferredAPI
-from tornado.gen import coroutine, Return, sleep
+from fcall import APIBase, APIError, deferred, DeferredAPI, Deferred
+from tornado.gen import coroutine, Return, sleep, Future
 from common.internal import Internal, InternalError
+
+
+API_TIMEOUT = 5
 
 
 class ConfigAPI(DeferredAPI):
@@ -25,11 +28,12 @@ class ConfigAPI(DeferredAPI):
         cached = obj.cache.get(key)
 
         if cached:
-            raise Return(cached)
+            raise Return([cached])
 
         try:
             config = yield self.internal.request(
                 "config", "get_configuration",
+                timeout=API_TIMEOUT,
                 gamespace=obj.env["gamespace"],
                 app_name=app_name,
                 app_version=app_version)
@@ -38,7 +42,41 @@ class ConfigAPI(DeferredAPI):
 
         obj.cache[key] = config
 
-        raise Return(config)
+        raise Return([config])
+
+
+class StoreAPI(DeferredAPI):
+    def __init__(self, api, context):
+        super(StoreAPI, self).__init__(api, context)
+        self.internal = Internal()
+
+    @deferred
+    def get(self, name, *ignored):
+
+        if not isinstance(name, (unicode, str)):
+            raise APIError(code=400, message="name should be a string")
+
+        obj = self._context.obj
+
+        key = "store:" + str(name)
+
+        cached = obj.cache.get(key)
+
+        if cached:
+            raise Return([cached])
+
+        try:
+            config = yield self.internal.request(
+                "store", "get_store",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                name=name)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        obj.cache[key] = config
+
+        raise Return([config])
 
 
 class ProfileAPI(DeferredAPI):
@@ -59,11 +97,12 @@ class ProfileAPI(DeferredAPI):
         cached = obj.cache.get(key)
 
         if cached:
-            raise Return(cached)
+            raise Return([cached])
 
         try:
             profile = yield self.internal.request(
                 "profile", "get_my_profile",
+                timeout=API_TIMEOUT,
                 gamespace_id=obj.env["gamespace"],
                 account_id=obj.env["account"],
                 path=path)
@@ -72,7 +111,7 @@ class ProfileAPI(DeferredAPI):
 
         obj.cache[key] = profile
 
-        raise Return(profile)
+        raise Return([profile])
 
     @deferred
     def update(self, profile=None, path="", merge=True, *ignored):
@@ -90,6 +129,7 @@ class ProfileAPI(DeferredAPI):
         try:
             profile = yield self.internal.request(
                 "profile", "update_profile",
+                timeout=API_TIMEOUT,
                 gamespace_id=obj.env["gamespace"],
                 account_id=obj.env["account"],
                 fields=profile,
@@ -100,23 +140,59 @@ class ProfileAPI(DeferredAPI):
 
         obj.cache[key] = profile
 
-        raise Return(profile)
+        raise Return([profile])
 
 
 class API(APIBase):
-    def __init__(self, context, debug, callback):
-        super(API, self).__init__(context, debug, callback)
+    def __init__(self, context, callback):
+        super(API, self).__init__(context, callback)
 
         self.env = context.obj.env
         self.profile = ProfileAPI(self, context)
         self.config = ConfigAPI(self, context)
+        self.store = StoreAPI(self, context)
 
-    def log(self, message, *ignored):
-        logging.info("JS: gs #{0} acc @{1} {2}".format(
-            self.env["gamespace"],
-            self.env["account"],
-            message))
-        super(API, self).log(message)
+    @deferred
+    def parallel(self, *items):
+
+        class Response(object):
+            def __init__(self):
+                self.success = None
+                self.data = None
+                self.code = None
+                self.message = None
+
+            def resolve(self, data):
+                self.success = True
+                self.data = data
+
+            def reject(self, code, message):
+                self.success = False
+                self.code = code
+                self.message = message
+
+        def prepare(item):
+            if not isinstance(item, Deferred):
+                raise APIError(400, "Item is not a deferred!")
+
+            f = Future()
+            item.done(lambda *args: f.set_result((True, args))).fail(lambda *args: f.set_result((False, args)))
+            return f
+
+        futures = map(prepare, items)
+        futures_result = yield futures
+
+        def finalize(args):
+            success, data = args
+            response = Response()
+            if success:
+                response.resolve(data)
+            else:
+                response.reject(*data)
+            return response
+
+        result = map(finalize, futures_result)
+        raise Return(result)
 
     @deferred
     def sleep(self, period, *ignored):
@@ -129,5 +205,6 @@ AUTOCOMPLETE_LIST = [
     "api.log",
     "api.profile.get",
     "api.profile.update",
-    "api.config.get"
+    "api.config.get",
+    "api.store.get"
 ]

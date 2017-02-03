@@ -341,7 +341,7 @@ class DebugFunctionController(a.AdminController):
         r = [
             a.breadcrumbs([
                 a.link("functions", "Functions"),
-                a.link("function", data["name"], function_id=self.context.get("function_id"))
+                a.link("function", data["name"], function_name=data["name"])
             ], "Debug")
         ]
 

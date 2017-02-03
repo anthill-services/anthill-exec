@@ -14,7 +14,7 @@ class FunctionAdapter(object):
         self.function_id = data.get("function_id")
         self.name = data.get("function_name")
         self.code = data.get("function_code")
-        self.imports = data.get("function_imports")
+        self.imports = data.get("function_imports", "").split(",")
 
 
 class FunctionNotFound(Exception):
@@ -161,22 +161,24 @@ class FunctionsModel(Model):
 
         fn = yield self.find_bound_function(gamespace_id, application_name, function_name)
 
-        try:
-            functions = yield self.db.query(
-                """
-                    SELECT *
-                    FROM `functions`
-                    WHERE `function_name` IN (%s) AND `gamespace_id`=%s;
-                """, fn.imports, gamespace_id)
-        except DatabaseError as e:
-            raise FunctionError("Failed to get function: " + e.args[1])
+        result = []
 
-        result = {
-            fn["function_name"]: str(fn["function_code"])
-            for fn in functions
-        }
+        if fn.imports:
+            try:
+                functions = yield self.db.query(
+                    """
+                        SELECT *
+                        FROM `functions`
+                        WHERE `function_name` IN %s AND `gamespace_id`=%s;
+                    """, fn.imports, gamespace_id)
+            except DatabaseError as e:
+                raise FunctionError("Failed to get function: " + e.args[1])
 
-        result[fn.name] = unicode(fn.code)
+            result.extend(
+                (fn["function_name"], unicode(fn["function_code"]))
+                for fn in functions)
+
+        result.append((fn.name, unicode(fn.code)))
 
         raise Return(result)
 

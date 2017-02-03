@@ -51,19 +51,49 @@ class Deferred(object):
         self.on_resolve = None
         self.on_reject = None
 
+        self._done = False
+        self._success = None
+        self._data = None
+
     def done(self, func):
+        if self._done:
+            # in case deferred is already completed before callback was set
+            if self._success:
+                func(*self._data)
+            return self
+
         self.on_resolve = func
         return self
 
     def fail(self, func):
+        if self._done:
+            # in case deferred is already completed before callback was set
+            if not self._success:
+                func(*self._data)
+            return self
+
         self.on_reject = func
         return self
 
     def resolve(self, *args):
+        if self._done:
+            return
+
+        self._done = True
+        self._success = True
+        self._data = args
+
         if self.on_resolve:
             self.on_resolve(*args)
 
     def reject(self, *args):
+        if self._done:
+            return
+
+        self._done = True
+        self._success = False
+        self._data = args
+
         if self.on_reject:
             self.on_reject(*args)
 
@@ -108,7 +138,8 @@ def deferred(method):
                         if exc:
                             d.reject(*exc.args)
                         else:
-                            d.resolve(future.result())
+                            result = future.result() or []
+                            d.resolve(*result)
                 except SyncTimeout.TimeoutError:
                     self._exception(FunctionCallError(
                         "Function call process timeout: function shouldn't be blocking and should rely "
@@ -121,9 +152,15 @@ def deferred(method):
                         exc = FunctionCallError(str(e) + "\n" + e.stackTrace)
 
                     self._exception(exc)
+                except Exception as e:
+                    self._exception(e)
 
         future = coroutine(method)(self, *map(convert, args))
-        IOLoop.current().add_future(future, done)
+
+        if future.done():
+            done(future)
+        else:
+            IOLoop.current().add_future(future, done)
 
         return d
     return wrapper
@@ -154,18 +191,12 @@ class APIUserError(object):
 
 
 class APIBase(object):
-    def __init__(self, context, debug, callback):
+    def __init__(self, context, callback):
         super(APIBase, self).__init__()
 
         self._context = context
-        self._debug = debug
         self._callback = callback
         self._active = True
-
-    def log(self, message, *ignored):
-        d = self._debug
-        if d:
-            d.log(message)
 
     # noinspection PyMethodMayBeStatic
     def completed(self, code, message=""):
@@ -179,12 +210,6 @@ class APIBase(object):
         if cb and not cb.done():
             self._active = False
             cb.set_exception(exc)
-
-    def res(self, result):
-        cb = self._callback
-        if cb and not cb.done():
-            self._active = False
-            cb.set_result(convert(result))
 
 
 class FunctionCallError(Exception):
@@ -211,11 +236,11 @@ class CompiledFunction(object):
 def __precompile__(functions):
     with JSEngine() as engine:
 
-        result = {}
+        result = []
 
-        for name, source in functions.iteritems():
+        for name, source in functions:
             try:
-                result[name] = bytearray(engine.precompile(source))
+                result.append((name, bytearray(engine.precompile(source))))
             except JSError as e:
                 raise FunctionCallError(e)
             except Exception as e:
@@ -225,10 +250,18 @@ def __precompile__(functions):
 
 
 class JSAPIEnvironment(object):
-    def __init__(self, env):
+    def __init__(self, env, debug=None):
         self.env = env
         self.cache = ExpiringDict(10, 60)
-        self._test = 1
+        self._debug = debug
+
+    def log(self, message, *ignored):
+        if self._debug:
+            self._debug.log(message)
+            logging.info("JS: gs #{0} acc @{1} {2}".format(
+                self.env.get("gamespace", "?"),
+                self.env.get("account", "?"),
+                message))
 
     # noinspection PyMethodMayBeStatic
     def error(self, *args):
@@ -243,16 +276,15 @@ class JSAPIEnvironment(object):
 
 
 class JSAPIContext(JSContext):
-    def __init__(self, env):
-        self.obj = JSAPIEnvironment(env)
+    def __init__(self, env, debug=None):
+        self.obj = JSAPIEnvironment(env, debug)
         self.env = env
         super(JSAPIContext, self).__init__(self.obj)
 
 
 class CallSession(object):
     def __init__(self, model, function_name, functions, debug, **env):
-        self.context = JSAPIContext(env)
-        self.debug = debug
+        self.context = JSAPIContext(env, debug=debug)
         self.gamespace = env["gamespace"]
         self.account_id = env["account"]
         self.function_name = function_name
@@ -285,7 +317,7 @@ class CallSession(object):
         logging.info("Session started: " + self.name)
 
     def call(self, method_name, arguments):
-        return self.model.__run__(self.context, method_name, arguments, debug=self.debug)
+        return self.model.__run__(self.context, method_name, arguments)
 
     def eval(self, text):
         return self.model.__eval__(self.context, str(text))
@@ -341,9 +373,9 @@ class FunctionsCallModel(Model):
 
             # collect them together
             result = [
-                CompiledFunction(name, functions[name], precompiled)
-                for name, precompiled in precompiled_functions.iteritems()
-                ]
+                CompiledFunction(name, source, precompiled)
+                for (name, source), (name_, precompiled) in zip(functions, precompiled_functions)
+            ]
 
             self.saved_code[key] = result
 
@@ -355,7 +387,7 @@ class FunctionsCallModel(Model):
     # noinspection PyTypeChecker
     @coroutine
     def __run_context__(self, functions, method_name, arguments, debug=None, **env):
-        context = JSAPIContext(env)
+        context = JSAPIContext(env, debug=debug)
 
         with JSEngine() as engine:
             with context:
@@ -367,7 +399,7 @@ class FunctionsCallModel(Model):
                     except Exception as e:
                         raise FunctionCallError(str(e))
 
-            result = yield self.__run__(context, method_name, arguments, debug=debug)
+            result = yield self.__run__(context, method_name, arguments)
             raise Return(result)
 
     # noinspection PyMethodMayBeStatic
@@ -390,7 +422,7 @@ class FunctionsCallModel(Model):
         return result
 
     @coroutine
-    def __run__(self, context, method, arguments, debug=None):
+    def __run__(self, context, method, arguments):
         from api import API
 
         if not isinstance(method, (str, unicode)):
@@ -412,11 +444,15 @@ class FunctionsCallModel(Model):
 
             future = Future()
 
-            run_api = API(context, debug=debug, callback=future)
+            def res(run_result):
+                if not future.done():
+                    future.set_result(convert(run_result))
+
+            run_api = API(context, callback=future)
 
             try:
                 with SyncTimeout(1):
-                    method_function.apply(method_function, [arguments, run_api])
+                    method_function.apply(method_function, [arguments, run_api, res])
             except JSError as e:
                 if APIUserError.user(e):
                     code, message = APIUserError.parse(e)
@@ -472,6 +508,6 @@ class FunctionsCallModel(Model):
         if not isinstance(arguments, (dict, list)):
             raise FunctionCallError("arguments expected to be a list or dict")
 
-        result = yield self.__run_context__(functions, method_name, arguments, None, **env)
+        result = yield self.__run_context__(functions, method_name, arguments, **env)
 
         raise Return(result)
