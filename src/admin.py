@@ -15,6 +15,7 @@ from common.access import AccessToken
 from common.internal import Internal, InternalError
 from common.validate import validate
 from common import ElapsedTime
+from common.jsonrpc import JsonRPCError
 
 from datetime import datetime
 import logging
@@ -455,7 +456,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
         message = "[" + str(datetime.now()) + "] " + str(message)
         try:
             yield self.rpc(self, "log", message=message)
-        except WebSocketClosedError:
+        except JsonRPCError:
             pass
 
     @coroutine

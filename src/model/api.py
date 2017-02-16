@@ -1,4 +1,5 @@
 import logging
+import ujson
 
 from fcall import APIBase, APIError, deferred, DeferredAPI, Deferred
 from tornado.gen import coroutine, Return, sleep, Future
@@ -162,7 +163,7 @@ class API(APIBase):
                 self.code = None
                 self.message = None
 
-            def resolve(self, data):
+            def resolve(self, data, *ignored):
                 self.success = True
                 self.data = data
 
@@ -186,7 +187,7 @@ class API(APIBase):
             success, data = args
             response = Response()
             if success:
-                response.resolve(data)
+                response.resolve(*data)
             else:
                 response.reject(*data)
             return response

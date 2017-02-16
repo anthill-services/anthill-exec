@@ -136,7 +136,10 @@ def deferred(method):
                 try:
                     with SyncTimeout(1):
                         if exc:
-                            d.reject(*exc.args)
+                            if isinstance(exc, APIError):
+                                d.reject(*exc.args)
+                            else:
+                                d.reject(500, str(exc))
                         else:
                             result = future.result() or []
                             d.resolve(*result)
@@ -255,8 +258,18 @@ class JSAPIEnvironment(object):
         self.cache = ExpiringDict(10, 60)
         self._debug = debug
 
+    def is_dict(self, object):
+        return isinstance(object, dict)
+
+    def is_list(self, object):
+        return isinstance(object, list)
+
+    def in_list(self, item, a_list):
+        return item in a_list
+
     def log(self, message, *ignored):
         if self._debug:
+            message = convert(message)
             self._debug.log(message)
             logging.info("JS: gs #{0} acc @{1} {2}".format(
                 self.env.get("gamespace", "?"),
