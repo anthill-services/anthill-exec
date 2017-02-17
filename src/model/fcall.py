@@ -268,13 +268,15 @@ class JSAPIEnvironment(object):
         return item in a_list
 
     def log(self, message, *ignored):
+        message = convert(message)
+
         if self._debug:
-            message = convert(message)
             self._debug.log(message)
-            logging.info("JS: gs #{0} acc @{1} {2}".format(
-                self.env.get("gamespace", "?"),
-                self.env.get("account", "?"),
-                message))
+
+        logging.info("JS: gs #{0} acc @{1} {2}".format(
+            self.env.get("gamespace", "?"),
+            self.env.get("account", "?"),
+            message))
 
     # noinspection PyMethodMayBeStatic
     def error(self, *args):
