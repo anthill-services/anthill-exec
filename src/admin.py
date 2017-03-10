@@ -461,7 +461,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
 
     @coroutine
     @validate(account="int", application_name="str_name", function_name="str_name")
-    def prepared(self, account, application_name, function_name):
+    def opened(self, account, application_name, function_name):
         fcalls = self.application.fcalls
 
         if not account:
