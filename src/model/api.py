@@ -79,6 +79,57 @@ class StoreAPI(DeferredAPI):
 
         raise Return([config])
 
+    @deferred
+    def new_order(self, store, item, currency, amount, component, *ignored):
+        obj = self._context.obj
+
+        try:
+            result = yield self.internal.request(
+                "store", "new_order",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                account=obj.env["account"],
+                store=store,
+                item=item,
+                currency=currency,
+                amount=amount,
+                component=component)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return([result])
+
+    @deferred
+    def update_order(self, order_id, *ignored):
+        obj = self._context.obj
+
+        try:
+            result = yield self.internal.request(
+                "store", "update_order",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                account=obj.env["account"],
+                order_id=order_id)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return([result])
+
+    @deferred
+    def update_orders(self, *ignored):
+        obj = self._context.obj
+
+        try:
+            result = yield self.internal.request(
+                "store", "update_orders",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                account=obj.env["account"])
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return([result])
+
 
 class ProfileAPI(DeferredAPI):
     def __init__(self, api, context):
