@@ -35,7 +35,6 @@ class ConfigAPI(DeferredAPI):
             config = yield self.internal.request(
                 "config", "get_configuration",
                 timeout=API_TIMEOUT,
-                gamespace=obj.env["gamespace"],
                 app_name=app_name,
                 app_version=app_version)
         except InternalError as e:
