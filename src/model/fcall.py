@@ -68,7 +68,7 @@ class Deferred(object):
                     "Function call process timeout: function shouldn't be blocking and "
                     "should rely on async methods instead.")
         else:
-            fn(args)
+            fn(*args)
 
     def done(self, func):
         if self._done:
