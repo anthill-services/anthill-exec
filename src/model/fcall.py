@@ -7,7 +7,7 @@ from expiringdict import ExpiringDict
 import datetime
 
 from concurrent.futures import ProcessPoolExecutor
-from common import ElapsedTime, SyncTimeout
+from common import ElapsedTime
 from common.options import options
 
 import logging
@@ -19,7 +19,10 @@ except ImportError:
     from StringIO import StringIO
 
 
-from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, JSObject, JSFunction
+from PyV8 import JSClass, JSContext, JSEngine, JSError, JSLocker, JSArray, JSObject, JSFunction, JSTimeoutError
+
+
+FUNCTION_CALL_TIMEOUT = 500L
 
 
 # contribute by marc boeker <http://code.google.com/u/marc.boeker/>
@@ -84,7 +87,12 @@ class Deferred(object):
         self._data = args
 
         if self.on_resolve:
-            self.on_resolve(*args)
+            try:
+                self.on_resolve.apply(self.on_resolve, list(args), {}, FUNCTION_CALL_TIMEOUT)
+            except JSTimeoutError:
+                raise APICallTimeoutError(
+                    "Function call process timeout: function shouldn't be blocking and "
+                    "should rely on async methods instead.")
 
     def reject(self, *args):
         if self._done:
@@ -95,7 +103,12 @@ class Deferred(object):
         self._data = args
 
         if self.on_reject:
-            self.on_reject(*args)
+            try:
+                self.on_reject.apply(self.on_reject, list(args), {}, FUNCTION_CALL_TIMEOUT)
+            except JSTimeoutError:
+                raise APICallTimeoutError(
+                    "Function call process timeout: function shouldn't be blocking and "
+                    "should rely on async methods instead.")
 
 
 class CompletedDeferred(object):
@@ -134,16 +147,15 @@ def deferred(method):
             with self._context:
                 exc = future.exception()
                 try:
-                    with SyncTimeout(1):
-                        if exc:
-                            if isinstance(exc, APIError):
-                                d.reject(*exc.args)
-                            else:
-                                d.reject(500, str(exc))
+                    if exc:
+                        if isinstance(exc, APIError):
+                            d.reject(*exc.args)
                         else:
-                            result = future.result() or []
-                            d.resolve(*result)
-                except SyncTimeout.TimeoutError:
+                            d.reject(500, str(exc))
+                    else:
+                        result = future.result() or []
+                        d.resolve(*result)
+                except RuntimeError:
                     self._exception(FunctionCallError(
                         "Function call process timeout: function shouldn't be blocking and should rely "
                         "on async methods instead."))
@@ -222,6 +234,11 @@ class FunctionCallError(Exception):
 
     def __str__(self):
         return self.message
+
+
+class APICallTimeoutError(FunctionCallError):
+    def __init__(self, message):
+        super(APICallTimeoutError, self).__init__(message)
 
 
 class NoSuchMethodError(FunctionCallError):
@@ -314,14 +331,9 @@ class CallSession(object):
         with self.context:
             for fn in self.functions:
                 try:
-                    with SyncTimeout(5):
-                        self.engine.compile(fn.source, precompiled=fn.precompiled).run()
+                    self.engine.compile(fn.source, precompiled=fn.precompiled).run()
                 except JSError as e:
                     raise FunctionCallError("Failed to compile '{0}': ".format(fn.name) + str(e))
-                except SyncTimeout.TimeoutError:
-                    raise FunctionCallError(
-                        "Function compile timeout: function shouldn't be blocking and should rely "
-                        "on async methods instead.")
 
                 except Exception as e:
                     raise FunctionCallError(str(e))
@@ -421,16 +433,17 @@ class FunctionsCallModel(Model):
     def __eval__(self, context, text):
         try:
             with context:
-                with SyncTimeout(1):
-                    result = convert(context.eval(text))
+                result = convert(context.eval(text))
+        except JSTimeoutError:
+            raise APICallTimeoutError(
+                "Function call process timeout: function shouldn't be blocking and "
+                "should rely on async methods instead.")
         except JSError as e:
             if APIUserError.user(e):
                 code, message = APIUserError.parse(e)
                 raise APIError(code, message)
 
             raise FunctionCallError(str(e) + "\n" + e.stackTrace)
-        except SyncTimeout.TimeoutError:
-            raise FunctionCallError("Eval timeout.")
         except Exception as e:
             raise FunctionCallError(str(e))
 
@@ -466,17 +479,17 @@ class FunctionsCallModel(Model):
             run_api = API(context, callback=future)
 
             try:
-                with SyncTimeout(1):
-                    method_function.apply(method_function, [arguments, run_api, res])
+                method_function.apply(method_function, [arguments, run_api, res], {}, FUNCTION_CALL_TIMEOUT)
+            except JSTimeoutError:
+                raise APICallTimeoutError(
+                    "Function call process timeout: function shouldn't be blocking and "
+                    "should rely on async methods instead.")
             except JSError as e:
                 if APIUserError.user(e):
                     code, message = APIUserError.parse(e)
                     raise APIError(code, message)
 
                 raise FunctionCallError(str(e) + "\n" + e.stackTrace)
-            except SyncTimeout.TimeoutError:
-                raise FunctionCallError("Function call process timeout: function shouldn't be blocking and should rely "
-                                        "on async methods instead.")
             except APIError:
                 raise
             except Exception as e:

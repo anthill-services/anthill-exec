@@ -232,9 +232,9 @@ class NewFunctionController(a.AdminController):
 
     @coroutine
     def get(self):
-        example = ("function main(args, api)\n"
+        example = ("function main(args, api, res)\n"
                    "{\n"
-                   "    api.res('Hello, world!');\n"
+                   "    res('Hello, world!');\n"
                    "}")
 
         raise Return({

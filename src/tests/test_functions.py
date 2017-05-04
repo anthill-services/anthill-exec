@@ -1,20 +1,26 @@
-
 from tornado.gen import coroutine, Return, sleep
 from tornado.testing import gen_test
 
 from server import ExecServer
 
-from model.fcall import NoSuchMethodError, APIError
+from model.fcall import NoSuchMethodError, APIError, APICallTimeoutError
 from model.function import FunctionExists, FunctionNotFound
 
 import common.testing
 import options as _opts
 from common import random_string
 import hashlib
+import inspect
+
+
+def is_debugging():
+    for frame in inspect.stack():
+        if frame[1].endswith("pydevd.py"):
+            return True
+    return False
 
 
 class FunctionsTestCase(common.testing.ServerTestCase):
-
     @classmethod
     @coroutine
     def co_setup_class(cls):
@@ -70,9 +76,9 @@ class FunctionsTestCase(common.testing.ServerTestCase):
                     return a + b;
                 }
 
-                function main(args, api)
+                function main(args, api, res)
                 {
-                    api.res(sum(args[0], args[1]));
+                    res(sum(args[0], args[1]));
                 }
             """, checks=[
                 ([10, 5], 15),
@@ -98,7 +104,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.js_function(
             "test_private_fields",
             """
-                function main(args, api)
+                function main(args, api, res)
                 {
                     var obj = args[0];
 
@@ -108,7 +114,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
                     delete obj.test_e;
                     delete obj._test_f;
 
-                    api.res([
+                    res([
                         obj.test_a,
                         obj._test_b
                     ]);
@@ -163,10 +169,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         fn = yield self.functions.create_function(
             0, "test_obj",
             """
-                function main(args, api)
+                function main(args, api, res)
                 {
                     var data = args[0];
-                    api.res(data["a"] + data["b"]);
+                    res(data["a"] + data["b"]);
                 }
             """, [])
 
@@ -217,10 +223,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_sha256",
             """
 
-            function main(args, api)
+            function main(args, api, res)
             {
                 var message = args[0];
-                api.res(SHA256.hash(message));
+                res(SHA256.hash(message));
             }
 
             """, ["sha256"])
@@ -237,6 +243,9 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
     @gen_test(timeout=60)
     def test_session_stress(self):
+
+        if is_debugging():
+            raise Exception("Stress test doesn't go well if tests are being debugged")
 
         fn1 = yield self.functions.create_function(
             0, "test_session_stress",
@@ -277,13 +286,13 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_sha256_session_stress",
             """
 
-            function main(args, api)
+            function main(args, api, res)
             {
                 var message = args[0];
                 var time = args[1];
                 api.sleep(time).done(function()
                 {
-                    api.res(SHA256.hash(message))
+                    res(SHA256.hash(message))
                 });
             }
 
@@ -354,13 +363,13 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_sha256_session",
             """
 
-            function main(args, api)
+            function main(args, api, res)
             {
                 var message = args[0];
                 var time = args[1];
                 api.sleep(time).done(function()
                 {
-                    api.res(SHA256.hash(message))
+                    res(SHA256.hash(message))
                 });
             }
 
@@ -394,11 +403,11 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_context",
             """
 
-            function main(args, api)
+            function main(args, api, res)
             {
                 api.sleep(0.5).done(function()
                 {
-                    api.res(true)
+                    res(true)
                 });
             }
 
@@ -440,15 +449,15 @@ class FunctionsTestCase(common.testing.ServerTestCase):
     def test_import(self):
         fn1 = yield self.functions.create_function(
             0, "test_a", """
-                function main(args, api)
+                function main(args, api, res)
                 {
-                    api.res(args["first"] + ":" + test_b(args["second"]));
+                    res(args["first"] + ":" + test_b(args["second"]));
                 }
             """, ["test_b"])
 
         fn2 = yield self.functions.create_function(
             0, "test_b", """
-                function test_b(second, api)
+                function test_b(second)
                 {
                     return "second:" + second;
                 }
@@ -484,14 +493,14 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         fn = yield self.functions.create_function(
             0, "test_parallel", """
-                function main(args, api)
+                function main(args, api, res)
                 {
                     var a = args[0];
                     var b = args[1];
 
                     api.sleep(0.5).done(function()
                     {
-                        api.res(a + b);
+                        res(a + b);
                     });
                 }
             """, [])
@@ -509,3 +518,48 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         ]
 
         self.assertEqual(res, [3, 300, 0, 300000])
+
+    @gen_test(timeout=1)
+    def test_timeout(self):
+        """
+        This function ensures that infinite loops can be caught by timeout
+        """
+
+        fn = yield self.functions.create_function(
+            0, "test_timeout", """
+                function main(args, api, res)
+                {
+                    while(true);
+                }
+            """, [])
+
+        yield self.functions.bind_function(0, "test_app", fn)
+
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout")
+
+        with self.assertRaises(APICallTimeoutError):
+            yield self.fcalls.call_fn(prepared, [])
+
+    @gen_test(timeout=1)
+    def test_timeout_in_callback(self):
+        """
+        This function ensures that infinite loops can be caught by timeout
+        """
+
+        fn = yield self.functions.create_function(
+            0, "test_timeout_in_callback", """
+                function main(args, api, res)
+                {
+                    api.sleep(0.1).done(function()
+                    {
+                        while(true);
+                    });
+                }
+            """, [])
+
+        yield self.functions.bind_function(0, "test_app", fn)
+
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout_in_callback")
+
+        with self.assertRaises(APICallTimeoutError):
+            yield self.fcalls.call_fn(prepared, [])
