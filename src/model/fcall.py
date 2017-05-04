@@ -58,11 +58,23 @@ class Deferred(object):
         self._success = None
         self._data = None
 
+    @staticmethod
+    def __call_fn__(fn, args):
+        if isinstance(fn, JSFunction):
+            try:
+                fn.apply(fn, list(args), {}, FUNCTION_CALL_TIMEOUT)
+            except JSTimeoutError:
+                raise APICallTimeoutError(
+                    "Function call process timeout: function shouldn't be blocking and "
+                    "should rely on async methods instead.")
+        else:
+            fn(args)
+
     def done(self, func):
         if self._done:
             # in case deferred is already completed before callback was set
             if self._success:
-                func(*self._data)
+                Deferred.__call_fn__(func, self._data)
             return self
 
         self.on_resolve = func
@@ -72,7 +84,7 @@ class Deferred(object):
         if self._done:
             # in case deferred is already completed before callback was set
             if not self._success:
-                func(*self._data)
+                Deferred.__call_fn__(func, self._data)
             return self
 
         self.on_reject = func
@@ -87,12 +99,7 @@ class Deferred(object):
         self._data = args
 
         if self.on_resolve:
-            try:
-                self.on_resolve.apply(self.on_resolve, list(args), {}, FUNCTION_CALL_TIMEOUT)
-            except JSTimeoutError:
-                raise APICallTimeoutError(
-                    "Function call process timeout: function shouldn't be blocking and "
-                    "should rely on async methods instead.")
+            Deferred.__call_fn__(self.on_resolve, args)
 
     def reject(self, *args):
         if self._done:
@@ -103,12 +110,7 @@ class Deferred(object):
         self._data = args
 
         if self.on_reject:
-            try:
-                self.on_reject.apply(self.on_reject, list(args), {}, FUNCTION_CALL_TIMEOUT)
-            except JSTimeoutError:
-                raise APICallTimeoutError(
-                    "Function call process timeout: function shouldn't be blocking and "
-                    "should rely on async methods instead.")
+            Deferred.__call_fn__(self.on_reject, args)
 
 
 class CompletedDeferred(object):
@@ -155,10 +157,6 @@ def deferred(method):
                     else:
                         result = future.result() or []
                         d.resolve(*result)
-                except RuntimeError:
-                    self._exception(FunctionCallError(
-                        "Function call process timeout: function shouldn't be blocking and should rely "
-                        "on async methods instead."))
                 except JSError as e:
                     if APIUserError.user(e):
                         code, message = APIUserError.parse(e)
@@ -498,7 +496,7 @@ class FunctionsCallModel(Model):
         try:
             result = yield with_timeout(datetime.timedelta(seconds=self.call_timeout), future)
         except TimeoutError:
-            raise FunctionCallError("Function call timeout")
+            raise FunctionCallError("Total function call timeout ({0})".format(self.call_timeout))
         except InternalError as e:
             raise APIError(e.code, "Internal error: " + e.body)
         else:

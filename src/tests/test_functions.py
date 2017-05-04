@@ -541,6 +541,32 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             yield self.fcalls.call_fn(prepared, [])
 
     @gen_test(timeout=1)
+    def test_parallel_api(self):
+        """
+        This function ensures that infinite loops can be caught by timeout
+        """
+
+        fn = yield self.functions.create_function(
+            0, "test_parallel_api", """
+                function main(args, api, res)
+                {
+                    var sleep1 = api.sleep(0.25);
+                    var sleep2 = api.sleep(0.5);
+                    
+                    api.parallel(sleep1, sleep2).done(function()
+                    {
+                        res(1);
+                    });
+                }
+            """, [])
+
+        yield self.functions.bind_function(0, "test_app", fn)
+
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel_api")
+
+        yield self.fcalls.call_fn(prepared, [])
+
+    @gen_test(timeout=1)
     def test_timeout_in_callback(self):
         """
         This function ensures that infinite loops can be caught by timeout
