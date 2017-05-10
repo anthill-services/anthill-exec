@@ -431,10 +431,10 @@ class FunctionsCallModel(Model):
     def __eval__(self, context, text):
         try:
             with context:
-                result = convert(context.eval(text))
+                result = convert(context.eval(text, "", -1, -1, None, FUNCTION_CALL_TIMEOUT))
         except JSTimeoutError:
             raise APICallTimeoutError(
-                "Function call process timeout: function shouldn't be blocking and "
+                "Evaluation process timeout: function shouldn't be blocking and "
                 "should rely on async methods instead.")
         except JSError as e:
             if APIUserError.user(e):
