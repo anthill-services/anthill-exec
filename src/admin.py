@@ -383,7 +383,7 @@ class DebugFunctionController(a.AdminController):
                          credential=credential)
 
     @coroutine
-    @validate(function_id="int", application_name="str_or_none", credential="str_or_none")
+    @validate(function_id="int", application_name="str", credential="str")
     def get(self, function_id, application_name=None, credential=None):
         env_service = self.application.env_service
 
