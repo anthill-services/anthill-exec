@@ -10,8 +10,8 @@ API_TIMEOUT = 5
 
 
 class ConfigAPI(DeferredAPI):
-    def __init__(self, api, context):
-        super(ConfigAPI, self).__init__(api, context)
+    def __init__(self, api, context, worker):
+        super(ConfigAPI, self).__init__(api, context, worker)
         self.internal = Internal()
 
     @deferred
@@ -46,8 +46,8 @@ class ConfigAPI(DeferredAPI):
 
 
 class StoreAPI(DeferredAPI):
-    def __init__(self, api, context):
-        super(StoreAPI, self).__init__(api, context)
+    def __init__(self, api, context, worker):
+        super(StoreAPI, self).__init__(api, context, worker)
         self.internal = Internal()
 
     @deferred
@@ -131,8 +131,8 @@ class StoreAPI(DeferredAPI):
 
 
 class ProfileAPI(DeferredAPI):
-    def __init__(self, api, context):
-        super(ProfileAPI, self).__init__(api, context)
+    def __init__(self, api, context, worker):
+        super(ProfileAPI, self).__init__(api, context, worker)
         self.internal = Internal()
 
     @deferred
@@ -195,13 +195,15 @@ class ProfileAPI(DeferredAPI):
 
 
 class API(APIBase):
-    def __init__(self, context, callback):
+    def __init__(self, context, callback, worker):
         super(API, self).__init__(context, callback)
 
+        self._worker = worker
+
         self.env = context.obj.env
-        self.profile = ProfileAPI(self, context)
-        self.config = ConfigAPI(self, context)
-        self.store = StoreAPI(self, context)
+        self.profile = ProfileAPI(self, context, worker)
+        self.config = ConfigAPI(self, context, worker)
+        self.store = StoreAPI(self, context, worker)
 
     @deferred
     def parallel(self, *items):
@@ -213,7 +215,7 @@ class API(APIBase):
                 self.code = None
                 self.message = None
 
-            def resolve(self, data, *ignored):
+            def resolve(self, data=None, *ignored):
                 self.success = True
                 self.data = data
 

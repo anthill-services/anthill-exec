@@ -3,7 +3,7 @@ from tornado.testing import gen_test
 
 from server import ExecServer
 
-from model.fcall import NoSuchMethodError, APIError, APICallTimeoutError
+from model.fcall import NoSuchMethodError, APIError, APICallTimeoutError, FUNCTION_CALL_TIMEOUT
 from model.function import FunctionExists, FunctionNotFound
 
 import common.testing
@@ -33,6 +33,11 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield cls.app.started()
 
+    @classmethod
+    @coroutine
+    def co_tear_down_class(cls):
+        cls.app.shutdown()
+
     @coroutine
     def js_function(self, name, code, checks):
         fn = yield self.functions.create_function(0, name, code, [])
@@ -43,10 +48,10 @@ class FunctionsTestCase(common.testing.ServerTestCase):
     @coroutine
     def check_function(self, app_name, name, checks):
         for args, result in checks:
-            self.assertEqual(
-                (yield self.fcalls.call(app_name, name, args, gamespace=0, account=0)),
-                result,
-                "Function result is not as expected!")
+
+            should_be = yield self.fcalls.call(app_name, name, args, gamespace=0, account=0)
+
+            self.assertEqual(should_be, result, "Function result is not as expected!")
 
     @gen_test
     def test_double_bind(self):
@@ -66,10 +71,30 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             yield self.functions.bind_function(0, "test_app", fn)
 
     @gen_test
+    def test_immediate_sum(self):
+
+        yield self.js_function(
+            "test_immediate_sum",
+            """
+                function sum(a, b)
+                {
+                    return a + b;
+                }
+
+                function main(args, api, res)
+                {
+                    return sum(args[0], args[1]);
+                }
+            """, checks=[
+                ([10, 5], 15),
+                ([10, -5], 5)
+            ])
+
+    @gen_test
     def test_sum(self):
 
         yield self.js_function(
-            "test_hello",
+            "test_sum",
             """
                 function sum(a, b)
                 {
@@ -106,7 +131,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             """
                 function main(args, api, res)
                 {
-                    var obj = args[0];
+                    var obj = args["instance"];
 
                     obj.test_c = 100
                     obj._test_d = 200
@@ -114,13 +139,13 @@ class FunctionsTestCase(common.testing.ServerTestCase):
                     delete obj.test_e;
                     delete obj._test_f;
 
-                    res([
+                    return [
                         obj.test_a,
                         obj._test_b
-                    ]);
+                    ];
                 }
             """, checks=[
-                ([instance], [5, None])
+                ({"instance": instance}, [5, None])
             ])
 
         self.assertEqual(instance.test_c, 100)
@@ -495,9 +520,9 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             0, "test_parallel", """
                 function main(args, api, res)
                 {
-                    var a = args[0];
-                    var b = args[1];
-
+                    var a = args["a"];
+                    var b = args["b"];
+                
                     api.sleep(0.5).done(function()
                     {
                         res(a + b);
@@ -507,19 +532,20 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield self.functions.bind_function(0, "test_app", fn)
 
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel")
+        worker = self.fcalls.get_worker()
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel", worker)
+
+        a = self.fcalls.call_fn(worker, prepared, {"a": 1, "b": 2})
+        b = self.fcalls.call_fn(worker, prepared, {"a": 100, "b": 200})
+        c = self.fcalls.call_fn(worker, prepared, {"a": -10, "b": 10})
+        d = self.fcalls.call_fn(worker, prepared, {"a": 100000, "b": 200000})
 
         # call them in parallel
-        res = yield [
-            self.fcalls.call_fn(prepared, [1, 2]),
-            self.fcalls.call_fn(prepared, [100, 200]),
-            self.fcalls.call_fn(prepared, [-10, 10]),
-            self.fcalls.call_fn(prepared, [100000, 200000])
-        ]
+        res = yield [a, b, c, d]
 
         self.assertEqual(res, [3, 300, 0, 300000])
 
-    @gen_test(timeout=1)
+    @gen_test(timeout=FUNCTION_CALL_TIMEOUT / 1000 + 0.5)
     def test_timeout(self):
         """
         This function ensures that infinite loops can be caught by timeout
@@ -535,10 +561,11 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield self.functions.bind_function(0, "test_app", fn)
 
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout")
+        worker = self.fcalls.get_worker()
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout", worker)
 
         with self.assertRaises(APICallTimeoutError):
-            yield self.fcalls.call_fn(prepared, [])
+            yield self.fcalls.call_fn(worker, prepared, [])
 
     @gen_test(timeout=1)
     def test_parallel_api(self):
@@ -562,11 +589,11 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield self.functions.bind_function(0, "test_app", fn)
 
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel_api")
+        worker = self.fcalls.get_worker()
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel_api", worker)
+        yield self.fcalls.call_fn(worker, prepared, [])
 
-        yield self.fcalls.call_fn(prepared, [])
-
-    @gen_test(timeout=1)
+    @gen_test(timeout=FUNCTION_CALL_TIMEOUT / 1000 + 0.5)
     def test_timeout_in_callback(self):
         """
         This function ensures that infinite loops can be caught by timeout
@@ -585,7 +612,8 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield self.functions.bind_function(0, "test_app", fn)
 
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout_in_callback")
+        worker = self.fcalls.get_worker()
+        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout_in_callback", worker)
 
         with self.assertRaises(APICallTimeoutError):
-            yield self.fcalls.call_fn(prepared, [])
+            yield self.fcalls.call_fn(worker, prepared, [])

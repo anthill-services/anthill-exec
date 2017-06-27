@@ -490,6 +490,9 @@ class FunctionDebugStreamController(a.StreamAdminController):
     @validate(method_name="str", arguments="json_dict")
     def call(self, method_name, arguments):
 
+        if not self.session:
+            return
+
         time = ElapsedTime("Calling method {0}".format(method_name))
 
         try:
@@ -517,7 +520,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
         time = ElapsedTime("Evaluating")
 
         try:
-            result = self.session.eval(text)
+            result = yield self.session.eval(text)
         except NoSuchMethodError as e:
             raise a.StreamCommandError(404, str(e))
         except FunctionCallError as e:

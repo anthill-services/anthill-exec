@@ -68,9 +68,9 @@ define("cache_max_connections",
 
 # JS
 
-define("js_compile_workers",
+define("js_workers",
        default=0,
-       help="Maximum worker processes to execute compilation operations (default = cpu count)",
+       help="Maximum worker processes to execute javascript (default = cpu count)",
        type=int)
 
 define("js_call_timeout",

@@ -72,6 +72,7 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
     def closed(self):
         if self.session:
             yield self.session.release()
+            self.session = None
 
 
 class CallActionHandler(common.handler.AuthenticatedHandler):
