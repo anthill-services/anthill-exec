@@ -718,10 +718,8 @@ class FunctionsCallModel(Model):
 
     @coroutine
     def stopped(self):
-        yield [
+        for worker in self.workers:
             worker.shutdown()
-            for worker in self.workers
-        ]
 
     @coroutine
     def started(self):
