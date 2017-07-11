@@ -43,6 +43,9 @@ class ExecServer(common.server.Server):
     def get_models(self):
         return [self.functions, self.fcalls]
 
+    def get_internal_handler(self):
+        return handler.InternalHandler(self)
+
     def get_admin(self):
         return {
             "index": admin.RootAdminController,

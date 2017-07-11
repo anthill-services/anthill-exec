@@ -121,7 +121,7 @@ class FunctionsModel(Model):
     def find_function(self, gamespace_id, function_name):
 
         try:
-            function = yield self.db.get(
+            result = yield self.db.get(
                 """
                     SELECT *
                     FROM `functions`
@@ -130,16 +130,16 @@ class FunctionsModel(Model):
         except DatabaseError as e:
             raise FunctionError("Failed to get function: " + e.args[1])
 
-        if not function:
+        if not result:
             raise FunctionNotFound()
 
-        raise Return(FunctionAdapter(function))
+        raise Return(FunctionAdapter(result))
 
     @coroutine
-    def find_bound_function(self, gamespace_id, application_name, function_name):
+    def find_bound_function(self, gamespace_id, function_name, application_name):
 
         try:
-            function = yield self.db.get(
+            result = yield self.db.get(
                 """
                     SELECT *
                     FROM `functions`, `application_functions`
@@ -151,15 +151,18 @@ class FunctionsModel(Model):
         except DatabaseError as e:
             raise FunctionError("Failed to get application function: " + e.args[1])
 
-        if not function:
+        if not result:
             raise FunctionNotFound()
 
-        raise Return(FunctionAdapter(function))
+        raise Return(FunctionAdapter(result))
 
     @coroutine
-    def get_function_with_dependencies(self, gamespace_id, application_name, function_name):
+    def get_function_with_dependencies(self, gamespace_id, function_name, application_name=None):
 
-        fn = yield self.find_bound_function(gamespace_id, application_name, function_name)
+        if application_name:
+            fn = yield self.find_bound_function(gamespace_id, function_name, application_name=application_name)
+        else:
+            fn = yield self.find_function(gamespace_id, function_name)
 
         result = []
 

@@ -194,6 +194,41 @@ class ProfileAPI(DeferredAPI):
         raise Return([profile])
 
 
+class SocialAPI(DeferredAPI):
+    def __init__(self, api, context, worker):
+        super(SocialAPI, self).__init__(api, context, worker)
+        self.internal = Internal()
+
+    @deferred
+    def update_profile(self, group_id, profile=None, path=None, merge=True, *ignored):
+
+        if path and not isinstance(path, (list, tuple)):
+            raise APIError(code=400, message="Path should be a list/tuple")
+
+        obj = self._context.obj
+
+        key = "profile:" + str(path)
+
+        if not profile:
+            profile = {}
+
+        try:
+            profile = yield self.internal.request(
+                "social", "update_group_profile",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                group_id=group_id,
+                profile=profile,
+                path=path,
+                merge=merge)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        obj.cache[key] = profile
+
+        raise Return([profile])
+
+
 class API(APIBase):
     def __init__(self, context, callback, worker):
         super(API, self).__init__(context, callback)
@@ -204,6 +239,7 @@ class API(APIBase):
         self.profile = ProfileAPI(self, context, worker)
         self.config = ConfigAPI(self, context, worker)
         self.store = StoreAPI(self, context, worker)
+        self.social = SocialAPI(self, context, worker)
 
     @deferred
     def parallel(self, *items):
@@ -231,6 +267,9 @@ class API(APIBase):
             f = Future()
             item.done(lambda *args: f.set_result((True, args))).fail(lambda *args: f.set_result((False, args)))
             return f
+
+        if len(items) == 1 and isinstance(items[0], list):
+            items = items[0]
 
         futures = map(prepare, items)
         futures_result = yield futures

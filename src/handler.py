@@ -4,6 +4,8 @@ from tornado.web import HTTPError
 from tornado.gen import coroutine, Return
 
 from common.access import scoped, AccessToken
+from common.internal import InternalError
+from common.validate import validate
 import common.handler
 
 from model.fcall import FunctionCallError, APIError, NoSuchMethodError
@@ -92,8 +94,9 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
             raise HTTPError(400, "Corrupted args, expected to be a dict or list.")
 
         try:
-            result = yield fcalls.call(application_name, function_name, args,
+            result = yield fcalls.call(function_name, args,
                                        method_name=method,
+                                       application_name=application_name,
                                        gamespace=gamespace_id,
                                        account=self.token.account)
 
@@ -110,3 +113,37 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
             result = str(result)
 
         self.dumps(result)
+
+
+class InternalHandler(object):
+    def __init__(self, application):
+        self.application = application
+
+    @coroutine
+    @validate(gamespace="int", function_name="str_name", method_name="str_name",
+              args="json_dict", env="json_dict", application_name="str_name")
+    def call_function(self, gamespace, function_name, method_name, args, env, application_name=None):
+
+        fcalls = self.application.fcalls
+
+        env["gamespace"] = gamespace
+
+        try:
+            result = yield fcalls.call(function_name, args,
+                                       method_name=method_name,
+                                       application_name=application_name,
+                                       **env)
+
+        except NoSuchMethodError as e:
+            raise InternalError(404, str(e))
+        except FunctionCallError as e:
+            raise InternalError(500, e.message)
+        except APIError as e:
+            raise InternalError(e.code, e.message)
+        except FunctionNotFound:
+            raise InternalError(404, "No such function")
+
+        if not isinstance(result, (str, dict, list)):
+            result = str(result)
+
+        raise Return(result)

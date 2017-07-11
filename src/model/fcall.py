@@ -334,10 +334,13 @@ class JSAPIEnvironment(object):
         if self._debug:
             self._debug.log(message)
 
-        logging.info("JS: gs #{0} acc @{1} {2}".format(
-            self.env.get("gamespace", "?"),
-            self.env.get("account", "?"),
-            message))
+        account = self.env.get("account", None)
+
+        if account:
+            logging.info("JS: gs #" + str(self.env.get("gamespace", "?")) + " acc @" + str(self.env.get("account", "?")) +
+                         " " + str(message))
+        else:
+            logging.info("JS: gs #" + str(self.env.get("gamespace", "?")) + " " + str(message))
 
     # noinspection PyMethodMayBeStatic
     def error(self, *args):
@@ -675,7 +678,7 @@ class FunctionsCallModel(Model):
         self.saved_code = ExpiringDict(max_len=64, max_age_seconds=60)
 
     @coroutine
-    def prepare(self, gamespace_id, application_name, function_name, worker, cache=True, debug=None):
+    def prepare(self, gamespace_id, function_name, worker, cache=True, debug=None, application_name=None):
         key = str(gamespace_id) + ":" + str(function_name)
 
         if cache:
@@ -692,8 +695,8 @@ class FunctionsCallModel(Model):
             # gather all functions with dependent functions (a dict name: source)
             functions = (yield self.functions.get_function_with_dependencies(
                 gamespace_id,
-                application_name,
-                function_name))
+                function_name,
+                application_name=application_name))
 
             # compile all functions in parallel
             precompiled_functions = yield worker.precompile(functions)
@@ -735,22 +738,26 @@ class FunctionsCallModel(Model):
         raise Return(result)
 
     @coroutine
-    def session(self, application_name, function_name, cache=True, debug=None, **env):
-
-        env["application_name"] = application_name
+    def session(self, function_name, cache=True, debug=None, application_name=None, **env):
 
         worker = self.get_worker()
 
-        logging.info("Session {0}/{1} on worker '{2}'".format(application_name, function_name, worker.name))
+        if application_name:
+            env["application_name"] = application_name
+            logging.info("Session {0}/{1} on worker '{2}'".format(application_name, function_name, worker.name))
+        else:
+            logging.info("Session {0} on worker '{1}'".format(function_name, worker.name))
 
-        fns = yield self.prepare(env["gamespace"], application_name, function_name, worker, cache, debug=debug)
+        fns = yield self.prepare(env["gamespace"], function_name, worker, cache, debug=debug,
+                                 application_name=application_name)
         session = CallSession(self, function_name, fns, debug, worker, **env)
         yield session.init()
 
         raise Return(session)
 
     @coroutine
-    def call(self, application_name, function_name, arguments, method_name="main", cache=True, debug=None, **env):
+    def call(self, function_name, arguments, method_name="main", cache=True,
+             debug=None, application_name=None, **env):
 
         if not isinstance(arguments, (dict, list)):
             raise FunctionCallError("arguments expected to be a list or dict")
@@ -758,7 +765,7 @@ class FunctionsCallModel(Model):
         t = ElapsedTime("Function execution")
         worker = self.get_worker()
 
-        fns = yield self.prepare(env["gamespace"], application_name, function_name, worker, cache)
+        fns = yield self.prepare(env["gamespace"], function_name, worker, cache, application_name=application_name)
         result = yield self.__run_functions__(worker, fns, method_name, arguments, debug, **env)
         logging.info(t.done())
 

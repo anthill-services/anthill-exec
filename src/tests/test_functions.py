@@ -49,7 +49,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
     def check_function(self, app_name, name, checks):
         for args, result in checks:
 
-            should_be = yield self.fcalls.call(app_name, name, args, gamespace=0, account=0)
+            should_be = yield self.fcalls.call(name, args, application_name=app_name, gamespace=0, account=0)
 
             self.assertEqual(should_be, result, "Function result is not as expected!")
 
@@ -171,7 +171,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn)
 
         with self.assertRaises(NoSuchMethodError):
-            yield self.fcalls.call("test_app", "test_no_main", [0, 1], gamespace=0, account=0)
+            yield self.fcalls.call("test_no_main", [0, 1], application_name="test_app", gamespace=0, account=0)
 
     @gen_test
     def test_api_error(self):
@@ -187,7 +187,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn)
 
         with self.assertRaises(APIError, code=400, message="bad_idea"):
-            yield self.fcalls.call("test_app", "test_api_error", [0, 1], gamespace=0, account=0)
+            yield self.fcalls.call("test_api_error", [0, 1], application_name="test_app", gamespace=0, account=0)
 
     @gen_test
     def test_obj(self):
@@ -203,7 +203,8 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield self.functions.bind_function(0, "test_app", fn)
 
-        result = yield self.fcalls.call("test_app", "test_obj", [{"a": 5, "b": 20}], gamespace=0, account=0)
+        result = yield self.fcalls.call("test_obj", [{"a": 5, "b": 20}],
+                                        application_name="test_app", gamespace=0, account=0)
         self.assertEqual(result, 25)
 
     @gen_test
@@ -326,7 +327,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn1)
         yield self.functions.bind_function(0, "test_app", fn2)
 
-        session = yield self.fcalls.session("test_app", "test_sha256_session_stress", gamespace=0, account=0)
+        session = yield self.fcalls.session("test_sha256_session_stress", application_name="test_app", gamespace=0, account=0)
 
         calls = []
         expected = []
@@ -403,7 +404,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn1)
         yield self.functions.bind_function(0, "test_app", fn2)
 
-        session = yield self.fcalls.session("test_app", "test_sha256_session", gamespace=0, account=0)
+        session = yield self.fcalls.session("test_sha256_session", application_name="test_app", gamespace=0, account=0)
 
         try:
             res = yield [
@@ -440,7 +441,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
 
         yield self.functions.bind_function(0, "test_app", fn)
 
-        session = yield self.fcalls.session("test_app", "test_context", gamespace=0, account=0)
+        session = yield self.fcalls.session("test_context", application_name="test_app", gamespace=0, account=0)
 
         @coroutine
         def do_delay():
@@ -507,7 +508,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
             """, [])
 
         with self.assertRaises(FunctionNotFound):
-            yield self.fcalls.call("test_app", "test_bad_bind", [0, 1], gamespace=0, account=0)
+            yield self.fcalls.call("test_bad_bind", [0, 1], application_name="test_app", gamespace=0, account=0)
 
     @gen_test(timeout=1)
     def test_parallel(self):
@@ -533,7 +534,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn)
 
         worker = self.fcalls.get_worker()
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel", worker)
+        prepared = yield self.fcalls.prepare(0, "test_parallel", worker, application_name="test_app")
 
         a = self.fcalls.call_fn(worker, prepared, {"a": 1, "b": 2})
         b = self.fcalls.call_fn(worker, prepared, {"a": 100, "b": 200})
@@ -562,7 +563,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn)
 
         worker = self.fcalls.get_worker()
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout", worker)
+        prepared = yield self.fcalls.prepare(0, "test_timeout", worker, application_name="test_app")
 
         with self.assertRaises(APICallTimeoutError):
             yield self.fcalls.call_fn(worker, prepared, [])
@@ -590,7 +591,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn)
 
         worker = self.fcalls.get_worker()
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_parallel_api", worker)
+        prepared = yield self.fcalls.prepare(0, "test_parallel_api", worker, application_name="test_app")
         yield self.fcalls.call_fn(worker, prepared, [])
 
     @gen_test(timeout=FUNCTION_CALL_TIMEOUT / 1000 + 0.5)
@@ -613,7 +614,7 @@ class FunctionsTestCase(common.testing.ServerTestCase):
         yield self.functions.bind_function(0, "test_app", fn)
 
         worker = self.fcalls.get_worker()
-        prepared = yield self.fcalls.prepare(0, "test_app", "test_timeout_in_callback", worker)
+        prepared = yield self.fcalls.prepare(0, "test_timeout_in_callback", worker, application_name="test_app")
 
         with self.assertRaises(APICallTimeoutError):
             yield self.fcalls.call_fn(worker, prepared, [])
