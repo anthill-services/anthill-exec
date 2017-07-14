@@ -346,7 +346,7 @@ class JSAPIEnvironment(object):
     def error(self, *args):
         if len(args) >= 2:
             exception = APIUserError(args[0], args[1])
-        elif len(args) >= 1 and isinstance(args[0], Exception):
+        elif len(args) >= 1 and isinstance(args[0], (Exception, str)):
             exception = APIUserError(500, str(args[0]))
         else:
             exception = APIUserError(500, "Internal Script Error")

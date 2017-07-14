@@ -207,11 +207,6 @@ class SocialAPI(DeferredAPI):
 
         obj = self._context.obj
 
-        key = "profile:" + str(path)
-
-        if not profile:
-            profile = {}
-
         try:
             profile = yield self.internal.request(
                 "social", "update_group_profile",
@@ -224,9 +219,55 @@ class SocialAPI(DeferredAPI):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        obj.cache[key] = profile
+        raise Return([profile])
+
+    @deferred
+    def update_group_profiles(self, group_profiles, path=None, merge=True, *ignored):
+
+        if not isinstance(group_profiles, dict):
+            raise APIError(code=400, message="Group profiles should be a dict")
+
+        if path and not isinstance(path, (list, tuple)):
+            raise APIError(code=400, message="Path should be a list/tuple")
+
+        obj = self._context.obj
+
+        try:
+            profile = yield self.internal.request(
+                "social", "update_group_profiles",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                group_profiles=group_profiles,
+                path=path,
+                merge=merge)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
 
         raise Return([profile])
+
+
+class MessageAPI(DeferredAPI):
+    def __init__(self, api, context, worker):
+        super(MessageAPI, self).__init__(api, context, worker)
+        self.internal = Internal()
+
+    @deferred
+    def send_batch(self, sender, messages, authoritative=True, *ignored):
+
+        obj = self._context.obj
+
+        try:
+            yield self.internal.request(
+                "message", "send_batch",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                sender=sender,
+                messages=messages,
+                authoritative=authoritative)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return(["OK"])
 
 
 class API(APIBase):
@@ -240,6 +281,7 @@ class API(APIBase):
         self.config = ConfigAPI(self, context, worker)
         self.store = StoreAPI(self, context, worker)
         self.social = SocialAPI(self, context, worker)
+        self.message = MessageAPI(self, context, worker)
 
     @deferred
     def parallel(self, *items):
