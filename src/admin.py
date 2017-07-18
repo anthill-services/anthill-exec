@@ -469,7 +469,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
 
         try:
             self.session = yield fcalls.session(
-                application_name, function_name, cache=False, debug=self.debug,
+                function_name, cache=False, debug=self.debug, application_name=application_name,
                 gamespace=self.gamespace, account=account)
 
         except NoSuchMethodError as e:
