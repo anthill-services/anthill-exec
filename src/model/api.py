@@ -270,18 +270,83 @@ class MessageAPI(DeferredAPI):
         raise Return(["OK"])
 
 
+class PromoAPI(DeferredAPI):
+    def __init__(self, api, context, worker):
+        super(PromoAPI, self).__init__(api, context, worker)
+        self.internal = Internal()
+
+    @deferred
+    def use_code(self, key, *ignored):
+
+        obj = self._context.obj
+
+        try:
+            result = yield self.internal.request(
+                "promo", "use_code",
+                timeout=API_TIMEOUT,
+                gamespace=obj.env["gamespace"],
+                account=obj.env["account"],
+                key=key)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        try:
+            result = result["result"]
+        except KeyError:
+            raise APIError(500, "Response had no 'result' field.")
+
+        raise Return([result])
+
+
+def lazy(fn):
+    """
+    Decorator that makes a property lazy-evaluated.
+    """
+    attr_name = '_lazy_' + fn.__name__
+
+    @property
+    def _lazy_property(self):
+        attr = getattr(self, attr_name, None)
+
+        if not attr:
+            attr = fn(self)
+            setattr(self, attr_name, attr)
+
+        return attr
+
+    return _lazy_property
+
+
 class API(APIBase):
     def __init__(self, context, callback, worker):
         super(API, self).__init__(context, callback)
 
         self._worker = worker
-
         self.env = context.obj.env
-        self.profile = ProfileAPI(self, context, worker)
-        self.config = ConfigAPI(self, context, worker)
-        self.store = StoreAPI(self, context, worker)
-        self.social = SocialAPI(self, context, worker)
-        self.message = MessageAPI(self, context, worker)
+
+    @lazy
+    def profile(self):
+        return ProfileAPI(self, self._context, self._worker)
+
+    @lazy
+    def config(self):
+        return ConfigAPI(self, self._context, self._worker)
+
+    @lazy
+    def store(self):
+        return StoreAPI(self, self._context, self._worker)
+
+    @lazy
+    def social(self):
+        return SocialAPI(self, self._context, self._worker)
+
+    @lazy
+    def message(self):
+        return MessageAPI(self, self._context, self._worker)
+
+    @lazy
+    def promo(self):
+        return PromoAPI(self, self._context, self._worker)
 
     @deferred
     def parallel(self, *items):
