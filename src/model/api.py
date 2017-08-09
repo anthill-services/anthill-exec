@@ -222,7 +222,7 @@ class SocialAPI(DeferredAPI):
         raise Return([profile])
 
     @deferred
-    def update_group_profiles(self, group_profiles, path=None, merge=True, *ignored):
+    def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, *ignored):
 
         if not isinstance(group_profiles, dict):
             raise APIError(code=400, message="Group profiles should be a dict")
@@ -239,7 +239,8 @@ class SocialAPI(DeferredAPI):
                 gamespace=obj.env["gamespace"],
                 group_profiles=group_profiles,
                 path=path,
-                merge=merge)
+                merge=merge,
+                synced=synced)
         except InternalError as e:
             raise APIError(e.code, e.body)
 
