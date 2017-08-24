@@ -4,12 +4,12 @@ from common.options import define
 # Main
 
 define("host",
-       default="http://exec-dev.anthill",
+       default="http://localhost:9507",
        help="Public hostname of this service",
        type=str)
 
 define("listen",
-       default="port:13000",
+       default="unix:/usr/local/var/run/anthill/dev_exec.sock",
        help="Socket to listen. Could be a port number (port:N), or a unix domain socket (unix:PATH)",
        type=str)
 
@@ -26,7 +26,7 @@ define("db_host",
        help="MySQL database location")
 
 define("db_username",
-       default="anthill",
+       default="root",
        type=str,
        help="MySQL account username")
 
@@ -36,7 +36,7 @@ define("db_password",
        help="MySQL account password")
 
 define("db_name",
-       default="exec",
+       default="dev_exec",
        type=str,
        help="MySQL database name")
 
