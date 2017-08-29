@@ -455,13 +455,13 @@ class FunctionDebugStreamController(a.StreamAdminController):
     def _log(self, message):
         message = "[" + str(datetime.now()) + "] " + str(message)
         try:
-            yield self.rpc(self, "log", message=message)
+            yield self.send_rpc(self, "log", message=message)
         except JsonRPCError:
             pass
 
     @coroutine
     @validate(account="int", application_name="str_name", function_name="str_name")
-    def opened(self, account, application_name, function_name):
+    def on_opened(self, account, application_name, function_name):
         fcalls = self.application.fcalls
 
         if not account:
@@ -539,7 +539,7 @@ class FunctionDebugStreamController(a.StreamAdminController):
         })
 
     @coroutine
-    def closed(self):
+    def on_closed(self):
         if self.session:
             yield self.session.release(self.handler.close_code, self.handler.close_reason)
             self.session = None

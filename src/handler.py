@@ -72,7 +72,7 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         raise Return(result)
 
     @coroutine
-    def closed(self):
+    def on_closed(self):
         if self.session:
             yield self.session.release()
             self.session = None
