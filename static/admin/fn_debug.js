@@ -21,12 +21,23 @@
 
             this.account = context["account"];
             this.application_name = context["application_name"];
+            this.application_version = context["application_version"];
+            this.class_name = context["class_name"];
+            this.commit = context["commit"];
+            this.session_args = context["session_args"];
             this.messages = {};
 
             this.ws.handle("log", function (payload) {
                 var message = payload["message"];
 
                 zis.log(message);
+            });
+            this.ws.handle("inited", function (payload) {
+                var result = payload["result"];
+
+                zis.log('<span class="text text-success">' +
+                    '<i class="fa fa-check" aria-hidden="true"></i> ' +
+                    '<b>' + (result ? ('Initialized: ' + result + '.') : 'Initialized.') + '</b></span>');
             });
 
             this.ws.onerror = function (message) {
@@ -155,6 +166,8 @@
 
             this.ws.onopen = function () {
                 zis.status('Connected', 'check', 'success');
+                zis.log('<i class="fa fa-refresh fa-spin fa-fw fa-loading" aria-hidden="true"></i> ' +
+                    '<b>Connected, initializing...</b>');
             };
 
             this.ws.onclose = function (code, reason) {

@@ -8,11 +8,13 @@ from common.internal import InternalError
 from common.validate import validate
 import common.handler
 
-from model.fcall import FunctionCallError, APIError, NoSuchMethodError
-from model.function import FunctionNotFound
+from model.util import APIError
+from model.build import JavascriptBuildError, JavascriptSessionError
+from model.sources import SourceCodeError, NoSuchSourceError, JavascriptSourceError
 from common.jsonrpc import JsonRPCError
 
 import ujson
+import logging
 
 
 class CallSessionHandler(common.handler.JsonRPCWSHandler):
@@ -23,48 +25,75 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
     def required_scopes(self):
         return ["exec_func_call"]
 
+    def check_origin(self, origin):
+        return True
+
     @coroutine
-    def prepared(self, application_name, function_name):
-        yield super(CallSessionHandler, self).prepared()
+    def on_opened(self, application_name, application_version, class_name):
+
+        sources = self.application.sources
 
         user = self.current_user
         token = user.token
 
-        fcalls = self.application.fcalls
         gamespace_id = token.get(AccessToken.GAMESPACE)
 
         try:
-            self.session = yield fcalls.session(
-                function_name,
+            session_args = ujson.loads(self.get_argument("session_args", "{}"))
+        except (KeyError, ValueError):
+            raise HTTPError(400, "Corrupted argument 'session_args'")
+
+        try:
+            source = yield sources.get_build_source(gamespace_id, application_name, application_version)
+        except SourceCodeError as e:
+            raise HTTPError(e.code, e.message)
+        except JavascriptSourceError as e:
+            raise HTTPError(e.code, e.message)
+        except NoSuchSourceError:
+            raise HTTPError(404, "No source found for {0}/{1}".format(application_name, application_version))
+
+        builds = self.application.builds
+
+        try:
+            build = yield builds.get_build(source)
+        except JavascriptBuildError as e:
+            raise HTTPError(e.code, e.message)
+
+        try:
+            self.session = build.session(
+                class_name,
+                session_args,
                 application_name=application_name,
+                application_version=application_version,
                 gamespace=gamespace_id,
                 account=token.account)
 
-        except NoSuchMethodError as e:
-            raise HTTPError(404, str(e))
-        except FunctionCallError as e:
-            raise HTTPError(500, e.message)
+            inited_result = yield self.session.init()
+            yield self.send_rpc(self, "inited", result=inited_result)
+
+        except JavascriptSessionError as e:
+            raise HTTPError(e.code, e.message)
         except APIError as e:
             raise HTTPError(e.code, e.message)
-        except FunctionNotFound:
-            raise HTTPError(404, "No such function")
         except Exception as e:
+            logging.exception("Failed during session initialization")
             raise HTTPError(500, str(e))
 
     @coroutine
     def call(self, method_name, arguments):
+
+        logging.info("Calling method {0}: {1}".format(
+            method_name, str(arguments)
+        ))
+
         try:
             result = yield self.session.call(method_name, arguments)
-        except NoSuchMethodError as e:
-            raise JsonRPCError(404, self.session.name + " " + str(e))
-        except FunctionCallError as e:
-            raise JsonRPCError(500, self.session.name + " " + e.message)
+        except JavascriptSessionError as e:
+            raise HTTPError(e.code, e.message)
         except APIError as e:
-            raise JsonRPCError(e.code, e.message)
-        except FunctionNotFound:
-            raise JsonRPCError(404, "No such function")
+            raise HTTPError(e.code, e.message)
         except Exception as e:
-            raise JsonRPCError(500, str(e))
+            raise HTTPError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)
@@ -74,20 +103,34 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
     @coroutine
     def on_closed(self):
         if self.session:
-            yield self.session.release()
+            yield self.session.release(self.close_code, self.close_reason)
             self.session = None
 
 
 class CallActionHandler(common.handler.AuthenticatedHandler):
     @coroutine
     @scoped(scopes=["exec_func_call"])
-    def post(self, application_name, function_name):
+    def post(self, application_name, application_version, method_name):
 
-        fcalls = self.application.fcalls
+        builds = self.application.builds
+        sources = self.application.sources
 
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        account_id = self.token.account
 
-        method = self.get_argument("method", "main")
+        try:
+            source = yield sources.get_build_source(gamespace_id, application_name, application_version)
+        except SourceCodeError as e:
+            raise HTTPError(e.code, e.message)
+        except JavascriptSourceError as e:
+            raise HTTPError(e.code, e.message)
+        except NoSuchSourceError:
+            raise HTTPError(404, "No source found for {0}/{1}".format(application_name, application_version))
+
+        try:
+            build = yield builds.get_build(source)
+        except JavascriptBuildError as e:
+            raise HTTPError(e.code, e.message)
 
         try:
             args = ujson.loads(self.get_argument("args", "{}"))
@@ -95,20 +138,19 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
             raise HTTPError(400, "Corrupted args, expected to be a dict or list.")
 
         try:
-            result = yield fcalls.call(function_name, args,
-                                       method_name=method,
-                                       application_name=application_name,
-                                       gamespace=gamespace_id,
-                                       account=self.token.account)
+            result = yield build.call(
+                method_name, args,
+                application_name=application_name,
+                application_version=application_version,
+                gamespace=gamespace_id,
+                account=account_id)
 
-        except NoSuchMethodError as e:
-            raise HTTPError(404, str(e))
-        except FunctionCallError as e:
-            raise HTTPError(500, e.message)
+        except JavascriptSessionError as e:
+            raise HTTPError(e.code, e.message)
         except APIError as e:
             raise HTTPError(e.code, e.message)
-        except FunctionNotFound:
-            raise HTTPError(404, "No such function")
+        except Exception as e:
+            raise HTTPError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)
@@ -135,14 +177,12 @@ class InternalHandler(object):
                                        application_name=application_name,
                                        **env)
 
-        except NoSuchMethodError as e:
-            raise InternalError(404, str(e))
-        except FunctionCallError as e:
-            raise InternalError(500, e.message)
+        except JavascriptSessionError as e:
+            raise HTTPError(e.code, e.message)
         except APIError as e:
-            raise InternalError(e.code, e.message)
-        except FunctionNotFound:
-            raise InternalError(404, "No such function")
+            raise HTTPError(e.code, e.message)
+        except Exception as e:
+            raise HTTPError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)
