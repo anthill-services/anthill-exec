@@ -11,33 +11,57 @@ API_TIMEOUT = 5
 
 
 @deferred
-def sleep(handler, delay):
+def sleep(delay, handler=None):
     yield tornado.gen.sleep(delay)
 
 
 @deferred
-def log(handler, message):
+def log(message, handler=None):
     yield handler.log(message)
 
 
 @deferred
-def parallel(handler, *items):
+def parallel(*items, **kwargs):
 
     class Response(object):
         def __init__(self):
-            self.success = None
-            self.data = None
-            self.code = None
-            self.message = None
+            self._success = None
+            self._data = None
+            self._code = None
+            self._message = None
 
         def resolve(self, data=None, *ignored):
-            self.success = True
-            self.data = data
+            self._success = True
+            self._data = data
 
-        def reject(self, code, message):
-            self.success = False
-            self.code = code
-            self.message = message
+        def reject(self, *args):
+            self._success = False
+
+            if len(args) >= 2:
+                self._code = args[0]
+                self._message = args[1]
+            elif len(args) == 1:
+                self._code = 500
+                self._message = args[0]
+            else:
+                self._code = 500
+                self._message = "Unknown"
+
+        @property
+        def success(self):
+            return self._success
+
+        @property
+        def code(self):
+            return self._code
+
+        @property
+        def data(self):
+            return self._data
+
+        @property
+        def message(self):
+            return self._message
 
     def prepare(item):
         if not isinstance(item, Deferred):
@@ -86,7 +110,7 @@ class ConfigAPI(object):
         self.internal = Internal()
 
     @deferred
-    def get(self, handler, *ignored):
+    def get(self, handler=None, *ignored):
         app_name = handler.env["application_name"]
         app_version = handler.env["application_version"]
 
@@ -113,7 +137,7 @@ class StoreAPI(object):
         self.internal = Internal()
 
     @deferred
-    def get(self, handler, name, *ignored):
+    def get(self, name, handler=None, *ignored):
 
         if not isinstance(name, (unicode, str)):
             raise APIError(code=400, message="name should be a string")
@@ -136,7 +160,7 @@ class StoreAPI(object):
         raise Return([config])
 
     @deferred
-    def new_order(self, handler, store, item, currency, amount, component, *ignored):
+    def new_order(self, store, item, currency, amount, component, handler=None, *ignored):
         try:
             result = yield self.internal.request(
                 "store", "new_order",
@@ -154,7 +178,7 @@ class StoreAPI(object):
         raise Return([result])
 
     @deferred
-    def update_order(self, handler, order_id, *ignored):
+    def update_order(self, order_id, handler=None, *ignored):
         try:
             result = yield self.internal.request(
                 "store", "update_order",
@@ -168,7 +192,7 @@ class StoreAPI(object):
         raise Return([result])
 
     @deferred
-    def update_orders(self, handler, *ignored):
+    def update_orders(self, handler=None, *ignored):
         try:
             result = yield self.internal.request(
                 "store", "update_orders",
@@ -186,7 +210,7 @@ class ProfileAPI(object):
         self.internal = Internal()
 
     @deferred
-    def get(self, handler, path="", *ignored):
+    def get(self, path="", handler=None, *ignored):
 
         if not isinstance(path, (unicode, str)):
             raise APIError(code=400, message="Path should be a string")
@@ -210,7 +234,7 @@ class ProfileAPI(object):
         raise Return([profile])
 
     @deferred
-    def update(self, handler, profile=None, path="", merge=True, *ignored):
+    def update(self, profile=None, path="", merge=True, handler=None, *ignored):
 
         if not isinstance(path, (unicode, str)):
             raise APIError(code=400, message="Path should be a string")
@@ -240,7 +264,7 @@ class SocialAPI(object):
         self.internal = Internal()
 
     @deferred
-    def update_profile(self, handler, group_id, profile=None, path=None, merge=True, *ignored):
+    def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
         if path and not isinstance(path, (list, tuple)):
             raise APIError(code=400, message="Path should be a list/tuple")
 
@@ -259,7 +283,7 @@ class SocialAPI(object):
         raise Return([profile])
 
     @deferred
-    def update_group_profiles(self, handler, group_profiles, path=None, merge=True, synced=False, *ignored):
+    def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, handler=None, *ignored):
         if not isinstance(group_profiles, dict):
             raise APIError(code=400, message="Group profiles should be a dict")
 
@@ -285,7 +309,7 @@ class MessageAPI(object):
         self.internal = Internal()
 
     @deferred
-    def send_batch(self, handler, sender, messages, authoritative=True, *ignored):
+    def send_batch(self, sender, messages, authoritative=True, handler=None, *ignored):
         try:
             yield self.internal.request(
                 "message", "send_batch",
@@ -304,7 +328,7 @@ class PromoAPI(object):
         self.internal = Internal()
 
     @deferred
-    def use_code(self, handler, key, *ignored):
+    def use_code(self, key, handler=None, *ignored):
         try:
             result = yield self.internal.request(
                 "promo", "use_code",

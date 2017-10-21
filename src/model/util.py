@@ -7,6 +7,7 @@ from v8py import JSFunction, JSException, current_context, JavaScriptTerminated
 
 import ujson
 import logging
+import traceback
 
 
 class JavascriptCallHandler(object):
@@ -39,9 +40,10 @@ class APIError(Exception):
     def __init__(self, code, message):
         self.code = code
         self.message = message
+        self.args = [code, message]
 
     def __str__(self):
-        return str(self.code) + ": " + self.message
+        return str(self.code) + ": " + str(self.message)
 
 
 class DeferredContext(object):
@@ -75,11 +77,6 @@ class Deferred(object):
             exc = APIError(408, "Evaluation process timeout: function shouldn't be blocking and "
                                 "should rely on async methods instead.")
             self._handler._exception(exc)
-        except JSException as e:
-            if isinstance(e.value, APIUserError):
-                self._handler._exception(e.value)
-            else:
-                self._handler._exception(e)
         except Exception as e:
             self._handler._exception(e)
 
@@ -202,7 +199,14 @@ def deferred(method):
         def callback(f):
             exc = f.exception()
             if exc:
-                d.reject(*exc.args)
+                if isinstance(exc, BaseException) and not isinstance(exc, APIError):
+                    ex_type, ex, tb = f.exc_info()
+                    logging.error("BaseException in @deferred: " + str(ex) +
+                                  "\n" + "".join(traceback.format_tb(tb)))
+
+                    d.reject(500, exc.args)
+                else:
+                    d.reject(*exc.args)
             else:
                 if f.result() is None:
                     d.resolve()
@@ -211,7 +215,7 @@ def deferred(method):
 
         try:
             # noinspection PyProtectedMember
-            future = coroutine(method)(d._handler, *args)
+            future = coroutine(method)(*args, handler=d._handler)
         except BaseException as exc:
             d.reject(*exc.args)
         else:

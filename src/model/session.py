@@ -105,6 +105,8 @@ class JavascriptSession(object):
                                 "should rely on async methods instead.")
         except InternalError as e:
             raise APIError(e.code, "Internal error: " + e.body)
+        except Exception as e:
+            raise APIError(500, e)
         else:
             if result:
                 raise Return(result)
@@ -129,12 +131,8 @@ class JavascriptSession(object):
         handler = JavascriptCallHandler(future, self.cache, self.env)
         DeferredContext.current = handler
 
-        # this allows eval to access session instance variables directly
-        # used for debugging purposes only so that's okay
-        hack = "with (instance) {\n" + str(value) + "\n}"
-
         try:
-            result = self.build.context.eval(str(hack))
+            result = self.build.context.eval(str(value))
         except JSException as e:
             raise APIError(500, e.message)
         except JavaScriptTerminated:

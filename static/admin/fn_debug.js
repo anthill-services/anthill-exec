@@ -57,7 +57,8 @@
 
             this.sandbox = $('<pre class="output" style="height: 250px"></pre>').appendTo(this.body);
             this.input = $('<input type="text" class="form-control" ' +
-                'placeholder="Type here to evaluate">').appendTo(this.body);
+                'placeholder="Type here to evaluate. You can use \'instance\' as a reference to the current' +
+                ' object">').appendTo(this.body);
 
             this.input.keyup(function(event)
             {

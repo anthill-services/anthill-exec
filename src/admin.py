@@ -1,5 +1,6 @@
 
 from tornado.gen import coroutine, Return, with_timeout, TimeoutError
+from tornado.web import HTTPError
 from tornado.ioloop import IOLoop
 from tornado.websocket import WebSocketClosedError
 
@@ -552,7 +553,6 @@ class RootAdminController(a.AdminController):
     def render(self, data):
         return [
             a.links("Exec service", [
-                a.link("functions", "Functions", icon="code"),
                 a.link("apps", "Applications", icon="mobile")
             ])
         ]
@@ -750,13 +750,13 @@ class CommitDebugStreamController(a.StreamAdminController):
                 account=self.token.account)
 
         except JavascriptSessionError as e:
-            raise a.ActionError(e.message)
+            raise HTTPError(000 + e.code, e.message)
         except NoSuchClass as e:
-            raise a.ActionError("No such class defined: {0}".format(class_name))
+            raise HTTPError(404, "No such class defined: {0}".format(class_name))
         except APIError as e:
-            raise a.ActionError(e.message)
+            raise HTTPError(e.code, e.message)
         except Exception as e:
-            raise a.ActionError(str(e))
+            raise HTTPError(500, str(e))
 
         # define instance for debugging purposes
         self.build.context.glob.instance = self.session.instance
@@ -769,11 +769,11 @@ class CommitDebugStreamController(a.StreamAdminController):
             yield self.send_rpc(self, "inited", result=inited_result)
 
         except JavascriptSessionError as e:
-            raise a.ActionError(e.message)
+            raise HTTPError(e.code, e.message)
         except APIError as e:
-            raise a.ActionError(e.message)
+            raise HTTPError(e.code, e.message)
         except Exception as e:
-            raise a.ActionError(str(e))
+            raise HTTPError(500, str(e))
 
     @coroutine
     @validate(method_name="str", arguments="json_dict")
@@ -787,6 +787,8 @@ class CommitDebugStreamController(a.StreamAdminController):
         try:
             result = yield self.session.call(method_name, arguments)
         except JavascriptSessionError as e:
+            raise a.StreamCommandError(e.code, str(e))
+        except APIError as e:
             raise a.StreamCommandError(e.code, str(e))
         except Exception as e:
             logging.exception("Error while calling method {0}".format(method_name))

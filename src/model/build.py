@@ -2,7 +2,7 @@ import os
 
 from tornado.gen import coroutine, Return, Future, TimeoutError, with_timeout, IOLoop
 # noinspection PyUnresolvedReferences
-from v8py import JSException, Context, new, JavaScriptTerminated
+from v8py import JSException, Context, new, JavaScriptTerminated, Script
 
 from api import expose
 from common.model import Model
@@ -50,10 +50,15 @@ class JavascriptBuild(object):
             for file_name in os.listdir(source_path):
                 if not file_name.endswith(".js"):
                     continue
+
+                logging.info("Compiling file {0}".format(os.path.join(source_path, file_name)))
+
                 try:
                     with open(os.path.join(source_path, file_name), 'r') as f:
-                        self.context.eval(f.read())
+                        script = Script(source=f.read(), filename=str(file_name))
+                        self.context.eval(script)
                 except Exception as e:
+                    logging.exception("Error while compiling")
                     raise JavascriptBuildError(500, str(e))
 
         expose(self.context)
