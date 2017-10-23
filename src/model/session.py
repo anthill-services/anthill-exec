@@ -22,7 +22,7 @@ class JavascriptSessionError(Exception):
 
 class JavascriptSession(object):
 
-    CALL_BLACKLIST = ["release", "init"]
+    CALL_BLACKLIST = ["release"]
 
     def __init__(self, build, instance, env, log, debug):
         self.build = build
@@ -32,9 +32,6 @@ class JavascriptSession(object):
 
         self.log = log
         self.debug = debug
-
-    def init(self):
-        return self.call_internal_method("init", {})
 
     @coroutine
     def call_internal_method(self, method_name, args, call_timeout=10):
@@ -145,7 +142,7 @@ class JavascriptSession(object):
 
     @coroutine
     def release(self, code=1006, reason="Closed normally"):
-        yield self.call_internal_method("release", {
+        yield self.call_internal_method("released", {
             "code": code,
             "reason": reason
         })

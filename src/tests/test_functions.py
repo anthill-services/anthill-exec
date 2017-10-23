@@ -275,44 +275,6 @@ class FunctionsTestCase(testing.ServerTestCase):
         ])
 
     @gen_test
-    def test_session_init(self):
-
-        build = JavascriptBuild()
-
-        build.add_source("""
-            function SessionTest()
-            {
-                this.inited = 0;
-            }
-
-            SessionTest.prototype.init = function(args)
-            {
-                var zis = this;
-
-                sleep(0.2).done(function()
-                {
-                    zis.inited = 5;
-                    res(20);
-                });
-            };
-
-            SessionTest.allow_session = true;
-
-            SessionTest.prototype.main = function(args)
-            {
-                return this.inited;
-            };
-        """)
-
-        session = build.session("SessionTest", {})
-        init_result = yield session.init()
-
-        result = yield session.call("main", {})
-
-        self.assertEqual(init_result, 20)
-        self.assertEqual(result, 5)
-
-    @gen_test
     def test_session_release(self):
 
         build = JavascriptBuild()
@@ -345,7 +307,6 @@ class FunctionsTestCase(testing.ServerTestCase):
         """)
 
         session = build.session("SessionTest", {})
-        yield session.init()
         self.assertEqual(Obj.released, False)
         yield session.release()
         self.assertEqual(Obj.released, True)
@@ -431,7 +392,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             rand = random_string(512)
             expected_result = hashlib.sha256(rand).hexdigest()
 
-            calls.append(session.call("main", {"message": rand, "time": time}))
+            calls.append(session.call("main", {"message": rand, "time": time}, call_timeout=20))
             expected.append(expected_result)
 
         try:

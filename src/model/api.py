@@ -347,13 +347,34 @@ class PromoAPI(object):
         raise Return([result])
 
 
+class CompletedDeferred(object):
+    def __init__(self, success, code=0, message=None):
+        self.success = success
+        self.code = code
+        self.message = message
+
+    def done(self, func):
+        if self.success is True:
+            func(True)
+        return self
+
+    def fail(self, func):
+        if self.success is not True:
+            func(self.code, self.message)
+        return self
+
+
+def completed(success, code=0, message=None):
+    return CompletedDeferred(success, code, message)
+
+
 class APIS(object):
     config = ConfigAPI()
     store = StoreAPI()
     profile = ProfileAPI()
     social = SocialAPI()
     message = MessageAPI()
-    promo = ProfileAPI()
+    promo = PromoAPI()
 
 
 def expose(context):
@@ -361,6 +382,7 @@ def expose(context):
         log=log,
         sleep=sleep,
         parallel=parallel,
+        completed=completed,
 
         config=APIS.config,
         store=APIS.store,

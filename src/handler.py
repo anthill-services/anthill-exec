@@ -29,7 +29,8 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         return True
 
     @coroutine
-    def on_opened(self, application_name, application_version, class_name):
+    def prepared(self, application_name, application_version, class_name):
+        yield super(CallSessionHandler, self).prepared(application_name, application_version, class_name)
 
         sources = self.application.sources
 
@@ -39,7 +40,7 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         gamespace_id = token.get(AccessToken.GAMESPACE)
 
         try:
-            session_args = ujson.loads(self.get_argument("session_args", "{}"))
+            session_args = ujson.loads(self.get_argument("args", "{}"))
         except (KeyError, ValueError):
             raise HTTPError(400, "Corrupted argument 'session_args'")
 
@@ -68,9 +69,6 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
                 gamespace=gamespace_id,
                 account=token.account)
 
-            inited_result = yield self.session.init()
-            yield self.send_rpc(self, "inited", result=inited_result)
-
         except JavascriptSessionError as e:
             raise HTTPError(e.code, e.message)
         except APIError as e:
@@ -89,11 +87,11 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         try:
             result = yield self.session.call(method_name, arguments)
         except JavascriptSessionError as e:
-            raise HTTPError(e.code, e.message)
+            raise JsonRPCError(e.code, e.message)
         except APIError as e:
-            raise HTTPError(e.code, e.message)
+            raise JsonRPCError(e.code, e.message)
         except Exception as e:
-            raise HTTPError(500, str(e))
+            raise JsonRPCError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)
