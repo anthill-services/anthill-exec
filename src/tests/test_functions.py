@@ -184,7 +184,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         build = JavascriptBuild()
 
         build.add_source("""
-            function main(args, api)
+            function main(args)
             {
                 throw error(400, "bad_idea");
             }
@@ -192,7 +192,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        with self.assertRaises(APIError) as error:
+        with self.assertRaises(APIUserError) as error:
             yield build.call("main", {})
 
         self.assertEqual(error.exception.code, 400)
