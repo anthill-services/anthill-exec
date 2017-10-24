@@ -15,6 +15,7 @@ import options as _opts
 from common import random_string, testing
 import hashlib
 import inspect
+import traceback
 
 
 def is_debugging():
@@ -192,11 +193,52 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        with self.assertRaises(APIUserError) as error:
+        try:
             yield build.call("main", {})
+        except APIUserError as error:
+            self.assertEqual(error.code, 400)
+            self.assertEqual(error.message, "bad_idea")
+        else:
+            self.fail("Expected APIUserError")
 
-        self.assertEqual(error.exception.code, 400)
-        self.assertEqual(error.exception.message, "bad_idea")
+    @gen_test
+    def test_api_error_traceback(self):
+
+        build = JavascriptBuild()
+
+        build.add_source("""
+        
+            function a()
+            {
+                throw error(400, "bad_idea");
+            }
+        
+            function b()
+            {
+                a();
+            }
+        
+            function c()
+            {
+                b();
+            }
+        
+            function main(args)
+            {
+                c();
+            }
+
+            main.allow_call = true;
+        """)
+
+        try:
+            yield build.call("main", {})
+        except APIUserError as error:
+            traceback.print_exc()
+            self.assertEqual(error.code, 400)
+            self.assertEqual(error.message, "bad_idea")
+        else:
+            self.fail("Expected APIUserError")
 
     @gen_test
     def test_api_error_callback(self):
@@ -292,7 +334,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             {
             }
 
-            SessionTest.prototype.release = function(args)
+            SessionTest.prototype.released = function(args)
             {
                 var zis = this;
 

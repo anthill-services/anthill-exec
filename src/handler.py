@@ -15,6 +15,10 @@ from common.jsonrpc import JsonRPCError
 
 import ujson
 import logging
+import traceback
+
+from common.options import options
+import options as _opts
 
 
 class CallSessionHandler(common.handler.JsonRPCWSHandler):
@@ -72,6 +76,12 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         except JavascriptSessionError as e:
             raise HTTPError(e.code, e.message)
         except APIError as e:
+            if options.debug:
+                logging.exception("API Error")
+                self.write(str(e.message) + "\n" + traceback.format_exc())
+                self.set_status(e.code, str(e.message))
+                self.finish()
+                return
             raise HTTPError(e.code, e.message)
         except Exception as e:
             logging.exception("Failed during session initialization")
@@ -89,6 +99,8 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
         except JavascriptSessionError as e:
             raise JsonRPCError(e.code, e.message)
         except APIError as e:
+            if options.debug:
+                raise JsonRPCError(e.code, e.message, traceback.format_exc())
             raise JsonRPCError(e.code, e.message)
         except Exception as e:
             raise JsonRPCError(500, str(e))
@@ -146,6 +158,12 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
         except JavascriptSessionError as e:
             raise HTTPError(e.code, e.message)
         except APIError as e:
+            if options.debug:
+                logging.exception("API Error")
+                self.write(str(e.message) + "\n" + traceback.format_exc())
+                self.set_status(e.code, str(e.message))
+                self.finish()
+                return
             raise HTTPError(e.code, e.message)
         except Exception as e:
             raise HTTPError(500, str(e))

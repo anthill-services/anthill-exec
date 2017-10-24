@@ -56,6 +56,10 @@ class JavascriptSession(object):
                                 "should rely on async methods instead.")
         except InternalError as e:
             raise APIError(e.code, "Internal error: " + e.body)
+        except APIError:
+            raise
+        except Exception as e:
+            raise APIError(500, e)
         else:
             if result:
                 raise Return(result)
@@ -102,6 +106,8 @@ class JavascriptSession(object):
                                 "should rely on async methods instead.")
         except InternalError as e:
             raise APIError(e.code, "Internal error: " + e.body)
+        except APIError:
+            raise
         except Exception as e:
             raise APIError(500, e)
         else:
@@ -137,6 +143,10 @@ class JavascriptSession(object):
                                 "should rely on async methods instead.")
         except InternalError as e:
             raise APIError(e.code, "Internal error: " + e.body)
+        except APIError:
+            raise
+        except Exception as e:
+            raise APIError(500, e)
 
         raise Return(result)
 

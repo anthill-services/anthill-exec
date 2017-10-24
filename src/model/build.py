@@ -128,6 +128,10 @@ class JavascriptBuild(object):
                                     "should rely on async methods instead.")
             except InternalError as e:
                 raise APIError(e.code, "Internal error: " + e.body)
+            except APIError:
+                raise
+            except Exception as e:
+                raise APIError(500, e)
             else:
                 if result is not None:
                     raise Return(result)
@@ -141,6 +145,10 @@ class JavascriptBuild(object):
                     method_name, call_timeout))
             except InternalError as e:
                 raise APIError(e.code, "Internal error: " + e.body)
+            except APIError:
+                raise
+            except Exception as e:
+                raise APIError(500, e)
             else:
                 raise Return(result)
 
