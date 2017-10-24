@@ -210,6 +210,9 @@ class JavascriptBuildsModel(Model):
     def __get_build_id__(source):
         return str(source.name) + "_" + str(source.repository_commit)
 
+    def validate_repository_url(self, url):
+        return self.root.validate_repository_url(url)
+
     @coroutine
     @validate(source=SourceCommitAdapter)
     def get_build(self, source):

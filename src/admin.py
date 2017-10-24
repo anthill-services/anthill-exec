@@ -125,13 +125,14 @@ class ApplicationSettingsController(a.AdminController):
 
         env_service = self.application.env_service
         sources = self.application.sources
+        builds = self.application.builds
 
         try:
             yield env_service.get_app_info(self.gamespace, app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
-        if not (yield sources.validate_repository_url(repository_url)):
+        if not (yield builds.validate_repository_url(repository_url)):
             raise a.ActionError("Error: \"{0}\" is not a valid Git repository URL, or "
                                 "the repository does not exist.".format(repository_url))
 
