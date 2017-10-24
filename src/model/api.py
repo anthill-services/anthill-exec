@@ -106,11 +106,10 @@ def error(*args):
 
 
 class ConfigAPI(object):
-    def __init__(self):
-        self.internal = Internal()
 
     @deferred
     def get(self, handler=None, *ignored):
+
         app_name = handler.env["application_name"]
         app_version = handler.env["application_version"]
 
@@ -119,8 +118,10 @@ class ConfigAPI(object):
         if cached:
             raise Return([cached])
 
+        internal = Internal()
+
         try:
-            config = yield self.internal.request(
+            config = yield internal.request(
                 "config", "get_configuration",
                 timeout=API_TIMEOUT,
                 app_name=app_name,
@@ -133,8 +134,6 @@ class ConfigAPI(object):
 
 
 class StoreAPI(object):
-    def __init__(self):
-        self.internal = Internal()
 
     @deferred
     def get(self, name, handler=None, *ignored):
@@ -147,8 +146,10 @@ class StoreAPI(object):
         if cached:
             raise Return([cached])
 
+        internal = Internal()
+
         try:
-            config = yield self.internal.request(
+            config = yield internal.request(
                 "store", "get_store",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -161,8 +162,11 @@ class StoreAPI(object):
 
     @deferred
     def new_order(self, store, item, currency, amount, component, handler=None, *ignored):
+
+        internal = Internal()
+
         try:
-            result = yield self.internal.request(
+            result = yield internal.request(
                 "store", "new_order",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -179,8 +183,11 @@ class StoreAPI(object):
 
     @deferred
     def update_order(self, order_id, handler=None, *ignored):
+
+        internal = Internal()
+
         try:
-            result = yield self.internal.request(
+            result = yield internal.request(
                 "store", "update_order",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -193,8 +200,11 @@ class StoreAPI(object):
 
     @deferred
     def update_orders(self, handler=None, *ignored):
+
+        internal = Internal()
+
         try:
-            result = yield self.internal.request(
+            result = yield internal.request(
                 "store", "update_orders",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -206,8 +216,6 @@ class StoreAPI(object):
 
 
 class ProfileAPI(object):
-    def __init__(self):
-        self.internal = Internal()
 
     @deferred
     def get(self, path="", handler=None, *ignored):
@@ -220,8 +228,10 @@ class ProfileAPI(object):
         if cached:
             raise Return([cached])
 
+        internal = Internal()
+
         try:
-            profile = yield self.internal.request(
+            profile = yield internal.request(
                 "profile", "get_my_profile",
                 timeout=API_TIMEOUT,
                 gamespace_id=handler.env["gamespace"],
@@ -243,8 +253,10 @@ class ProfileAPI(object):
         if not profile:
             profile = {}
 
+        internal = Internal()
+
         try:
-            profile = yield self.internal.request(
+            profile = yield internal.request(
                 "profile", "update_profile",
                 timeout=API_TIMEOUT,
                 gamespace_id=handler.env["gamespace"],
@@ -260,16 +272,16 @@ class ProfileAPI(object):
 
 
 class SocialAPI(object):
-    def __init__(self):
-        self.internal = Internal()
 
     @deferred
     def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
         if path and not isinstance(path, (list, tuple)):
             raise APIError(code=400, message="Path should be a list/tuple")
 
+        internal = Internal()
+
         try:
-            profile = yield self.internal.request(
+            profile = yield internal.request(
                 "social", "update_group_profile",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -290,8 +302,10 @@ class SocialAPI(object):
         if path and not isinstance(path, (list, tuple)):
             raise APIError(code=400, message="Path should be a list/tuple")
 
+        internal = Internal()
+
         try:
-            profile = yield self.internal.request(
+            profile = yield internal.request(
                 "social", "update_group_profiles",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -305,13 +319,14 @@ class SocialAPI(object):
 
 
 class MessageAPI(object):
-    def __init__(self):
-        self.internal = Internal()
 
     @deferred
     def send_batch(self, sender, messages, authoritative=True, handler=None, *ignored):
+
+        internal = Internal()
+
         try:
-            yield self.internal.request(
+            yield internal.request(
                 "message", "send_batch",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -324,13 +339,14 @@ class MessageAPI(object):
 
 
 class PromoAPI(object):
-    def __init__(self):
-        self.internal = Internal()
 
     @deferred
     def use_code(self, key, handler=None, *ignored):
+
+        internal = Internal()
+
         try:
-            result = yield self.internal.request(
+            result = yield internal.request(
                 "promo", "use_code",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
