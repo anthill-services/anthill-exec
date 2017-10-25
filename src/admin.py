@@ -33,7 +33,7 @@ class ApplicationController(a.AdminController):
         sources = self.application.sources
 
         try:
-            app = yield env_service.get_app_info(self.gamespace, app_id)
+            app = yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -93,7 +93,7 @@ class ApplicationSettingsController(a.AdminController):
         sources = self.application.sources
 
         try:
-            app = yield env_service.get_app_info(self.gamespace, app_id)
+            app = yield env_service.get_app_info(app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
@@ -128,7 +128,7 @@ class ApplicationSettingsController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(self.gamespace, app_id)
+            yield env_service.get_app_info(app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
@@ -206,7 +206,7 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            app = yield env_service.get_app_info(self.gamespace, app_id)
+            app = yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -275,7 +275,7 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(self.gamespace, app_id)
+            yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -328,7 +328,7 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(self.gamespace, app_id)
+            yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -359,7 +359,7 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(self.gamespace, app_id)
+            yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -402,7 +402,7 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(self.gamespace, app_id)
+            yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -525,7 +525,7 @@ class ApplicationsController(a.AdminController):
     @coroutine
     def get(self):
         env_service = self.application.env_service
-        apps = yield env_service.list_apps(self.gamespace)
+        apps = yield env_service.list_apps()
 
         result = {
             "apps": apps
@@ -653,7 +653,7 @@ class DebugCommitController(a.AdminController):
         env_service = self.application.env_service
 
         try:
-            app = yield env_service.get_app_info(self.gamespace, app_id)
+            app = yield env_service.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
