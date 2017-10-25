@@ -15,9 +15,10 @@ def sleep(delay, handler=None):
     yield tornado.gen.sleep(delay)
 
 
-@deferred
-def log(message, handler=None):
-    yield handler.log(message)
+def log(message):
+    handler = DeferredContext.current
+    if handler:
+        handler.log(message)
 
 
 @deferred
