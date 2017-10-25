@@ -275,6 +275,52 @@ class ProfileAPI(object):
 class SocialAPI(object):
 
     @deferred
+    def acquire_name(self, kind, name, handler=None, *ignored):
+        internal = Internal()
+
+        try:
+            profile = yield internal.request(
+                "social", "acquire_name",
+                gamespace=handler.env["gamespace"],
+                account=handler.env["account"],
+                kind=kind,
+                name=name)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return([profile])
+
+    @deferred
+    def check_name(self, kind, name, handler=None, *ignored):
+        internal = Internal()
+
+        try:
+            account_id = yield internal.request(
+                "social", "check_name",
+                gamespace=handler.env["gamespace"],
+                kind=kind,
+                name=name)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return([account_id])
+
+    @deferred
+    def release_name(self, kind, handler=None, *ignored):
+        internal = Internal()
+
+        try:
+            released = yield internal.request(
+                "social", "release_name",
+                gamespace=handler.env["gamespace"],
+                account=handler.env["account"],
+                kind=kind)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return([released])
+
+    @deferred
     def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
         if path and not isinstance(path, (list, tuple)):
             raise APIError(code=400, message="Path should be a list/tuple")
