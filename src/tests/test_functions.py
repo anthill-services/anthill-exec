@@ -84,14 +84,14 @@ class FunctionsTestCase(testing.ServerTestCase):
         build = JavascriptBuild()
 
         build.add_source("""
-            function sum(a, b)
+            async function sum(a, b)
             {
                 return a + b;
             }
 
-            function main(args)
+            async function main(args)
             {
-                res(sum(args["a"], args["b"]));
+                return await sum(args["a"], args["b"]);
             }
             
             main.allow_call = true;
@@ -187,7 +187,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         build.add_source("""
             function main(args)
             {
-                throw error(400, "bad_idea");
+                throw new Error(400, "bad_idea");
             }
 
             main.allow_call = true;
@@ -210,7 +210,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         
             function a()
             {
-                throw error(400, "bad_idea");
+                throw new Error(400, "bad_idea");
             }
         
             function b()
@@ -246,12 +246,10 @@ class FunctionsTestCase(testing.ServerTestCase):
         build = JavascriptBuild()
 
         build.add_source("""
-            function main(args)
+            async function main(args)
             {
-                sleep(0.1).done(function()
-                {
-                    throw error(400, "bad_idea");
-                });
+                await sleep(0.1)
+                throw new Error(400, "bad_idea");
             }
 
             main.allow_call = true;
@@ -334,15 +332,10 @@ class FunctionsTestCase(testing.ServerTestCase):
             {
             }
 
-            SessionTest.prototype.released = function(args)
+            SessionTest.prototype.released = async function(args)
             {
-                var zis = this;
-
-                sleep(0.2).done(function()
-                {
-                    were_released();
-                    res();
-                });
+                await sleep(0.2)
+                were_released();
             };
 
             SessionTest.allow_session = true;
@@ -366,15 +359,14 @@ class FunctionsTestCase(testing.ServerTestCase):
             
             SessionTest.allow_session = true;
             
-            SessionTest.prototype.main = function(args)
+            SessionTest.prototype.main = async function(args)
             {
                 var message = args["message"];
                 var time = args["time"];
                 
-                sleep(time).done(function()
-                {
-                    res(SHA256.hash(message))
-                });
+                await sleep(time);
+                
+                return SHA256.hash(message);
             };
         """)
 
@@ -412,15 +404,14 @@ class FunctionsTestCase(testing.ServerTestCase):
             
             SessionTest.allow_session = true;
             
-            SessionTest.prototype.main = function(args)
+            SessionTest.prototype.main = async function(args)
             {
                 var message = args["message"];
                 var time = args["time"];
                 
-                sleep(time).done(function()
-                {
-                    res(SHA256.hash(message))
-                });
+                await sleep(time);
+                    
+                return SHA256.hash(message);
             };
         """)
 
@@ -456,12 +447,10 @@ class FunctionsTestCase(testing.ServerTestCase):
             {
             }
         
-            ContextTest.prototype.main = function(args)
+            ContextTest.prototype.main = async function(args)
             {
-                sleep(0.5).done(function()
-                {
-                    res(true);
-                });
+                await sleep(0.5)
+                return true;
             }
             
             ContextTest.allow_session = true;
@@ -514,15 +503,14 @@ class FunctionsTestCase(testing.ServerTestCase):
             {
             }
 
-            ParallelTest.prototype.main = function(args)
+            ParallelTest.prototype.main = async function(args)
             {
                 var a = args["a"];
                 var b = args["b"];
+                
+                await sleep(0.5);
 
-                sleep(0.5).done(function()
-                {
-                    res(a + b);
-                });
+                return a + b;
             }
 
             ParallelTest.allow_session = true;
@@ -567,7 +555,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         self.assertEqual(error.exception.code, 408)
 
     @gen_test(timeout=1.5)
-    def test_timeout_in_callback(self):
+    def __test_timeout_in_callback(self):
         """
         This function ensures that infinite loops inside the callbacks also can be caught by timeout
         """
@@ -575,12 +563,11 @@ class FunctionsTestCase(testing.ServerTestCase):
         build = JavascriptBuild()
 
         build.add_source("""
-            function main(args)
+            async function main(args)
             {
-                sleep(0.1).done(function()
-                {
-                    while(true);
-                });
+                await sleep(0.1)
+                
+                while(true);
             }
 
             main.allow_call = true;
@@ -596,15 +583,12 @@ class FunctionsTestCase(testing.ServerTestCase):
         build = JavascriptBuild()
 
         build.add_source("""
-            function main(args)
+            async function main(args)
             {
                 var sleep1 = sleep(0.25);
                 var sleep2 = sleep(0.5);
-
-                parallel(sleep1, sleep2).done(function()
-                {
-                    res(1);
-                });
+                
+                await Promise.all([sleep1, sleep2])
             }
 
             main.allow_call = true;

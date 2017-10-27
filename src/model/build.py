@@ -2,7 +2,7 @@ import os
 
 from tornado.gen import coroutine, Return, Future, TimeoutError, with_timeout, IOLoop
 # noinspection PyUnresolvedReferences
-from v8py import JSException, Context, new, JavaScriptTerminated, Script
+from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated, Script
 
 from api import expose
 from common.model import Model
@@ -10,7 +10,7 @@ from common.access import InternalError
 from common.source import SourceCodeRoot, SourceCommitAdapter, SourceProjectAdapter, SourceCodeError
 from common.validate import validate
 from session import JavascriptSession, JavascriptSessionError
-from util import APIError, APIUserError, DeferredContext, JavascriptCallHandler
+from util import APIError, APIUserError, PromiseContext, JavascriptCallHandler
 
 from common.options import options
 import datetime
@@ -40,6 +40,7 @@ class JavascriptBuild(object):
         self.build_id = build_id
         self.model = model
         self.context = Context()
+        self.promise_type = self.context.glob.Promise
 
         # this variable holds amount of users of this build. once this variable hits back to zero,
         # a 30 sec timer will start to release this build
@@ -88,7 +89,7 @@ class JavascriptBuild(object):
 
         # declare some usage, session will release it using 'session_released' call
         self.add_ref()
-        return JavascriptSession(self, instance, env, log=log, debug=debug)
+        return JavascriptSession(self, instance, env, log=log, debug=debug, promise_type=self.promise_type)
 
     @coroutine
     @validate(method_name="str_name", args="json_dict")
@@ -111,9 +112,8 @@ class JavascriptBuild(object):
         if not getattr(method, "allow_call", False):
             raise NoSuchMethod()
 
-        future = Future()
-        handler = JavascriptCallHandler(future, None, env)
-        DeferredContext.current = handler
+        handler = JavascriptCallHandler(None, env, promise_type=self.promise_type)
+        PromiseContext.current = handler
 
         # declare some usage until this call is finished
         self.add_ref()
@@ -132,11 +132,22 @@ class JavascriptBuild(object):
                 raise
             except Exception as e:
                 raise APIError(500, e)
-            else:
-                if result is not None:
-                    raise Return(result)
+
+            # if the function is defined as 'async', a Promise will be returned
+            if isinstance(result, JSPromise):
+                future = Future()
+                # connect a promise right into the future
+                result.then(future.set_result, future.set_exception)
                 if future.done():
+                    exception = future.exception()
+                    if exception and not isinstance(exception, BaseException):
+                        if hasattr(exception, "stack"):
+                            raise APIError(500, str(exception.stack))
+                        raise APIError(500, str(exception))
                     raise Return(future.result())
+            else:
+                # immediate result
+                raise Return(result)
 
             try:
                 result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
@@ -163,7 +174,8 @@ class JavascriptBuild(object):
         self.refs += 1
 
     def __remove_callback__(self):
-        logging.info("Build {0} is being released because no usages left.".format(self.build_id))
+        if self.build_id:
+            logging.info("Build {0} is being released because no usages left.".format(self.build_id))
 
         self._remove_timeout = None
         IOLoop.current().add_callback(self.release)

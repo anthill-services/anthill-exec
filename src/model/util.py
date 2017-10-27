@@ -3,7 +3,7 @@ from tornado.gen import coroutine, Return, with_timeout
 from tornado.ioloop import IOLoop
 
 # noinspection PyUnresolvedReferences
-from v8py import JSFunction, JSException, current_context, JavaScriptTerminated
+from v8py import JSFunction, new, JSPromise, JSException, current_context, JavaScriptTerminated
 
 import ujson
 import logging
@@ -11,19 +11,16 @@ import traceback
 
 
 class JavascriptCallHandler(object):
-    def __init__(self, future, cache, env, debug=None):
-        self._future = future
+    def __init__(self, cache, env, debug=None, promise_type=None):
         self.cache = cache
         self.env = env
         self.log = JavascriptCallHandler._default_log
         self.debug = debug
+        self.promise_type = promise_type
 
     @staticmethod
     def _default_log(message):
         logging.info(message)
-
-    def _exception(self, exc):
-        self._future.set_exception(exc)
 
     def get_cache(self, key):
         return self.cache.get(key) if self.cache else None
@@ -31,9 +28,6 @@ class JavascriptCallHandler(object):
     def set_cache(self, key, value):
         if self.cache:
             self.cache[key] = value
-
-    def res(self, result=None):
-        self._future.set_result(result)
 
 
 class APIError(Exception):
@@ -46,81 +40,8 @@ class APIError(Exception):
         return str(self.code) + ": " + str(self.message)
 
 
-class DeferredContext(object):
+class PromiseContext(object):
     current = None
-
-
-class Deferred(object):
-    def __init__(self):
-        self.on_resolve = None
-        self.on_reject = None
-
-        self._done = False
-        self._success = None
-        self._data = None
-
-        self._handler = DeferredContext.current
-
-        if not self._handler:
-            raise APIError(500, "Current called is not defined")
-
-    # noinspection PyProtectedMember
-    def __call_fn__(self, fn, args):
-        DeferredContext.current = self._handler
-
-        try:
-            if isinstance(fn, JSFunction):
-                fn(*args, timeout=1.0)
-            else:
-                fn(*args)
-        except JavaScriptTerminated:
-            exc = APIError(408, "Evaluation process timeout: function shouldn't be blocking and "
-                                "should rely on async methods instead.")
-            self._handler._exception(exc)
-        except Exception as e:
-            self._handler._exception(e)
-
-    def done(self, func):
-        if self._done:
-            # in case deferred is already completed before callback was set
-            if self._success:
-                self.__call_fn__(func, self._data)
-            return self
-
-        self.on_resolve = func
-        return self
-
-    def fail(self, func):
-        if self._done:
-            # in case deferred is already completed before callback was set
-            if not self._success:
-                self.__call_fn__(func, self._data)
-            return self
-
-        self.on_reject = func
-        return self
-
-    def resolve(self, *args):
-        if self._done:
-            return
-
-        self._done = True
-        self._success = True
-        self._data = args
-
-        if self.on_resolve:
-            self.__call_fn__(self.on_resolve, args)
-
-    def reject(self, *args):
-        if self._done:
-            return
-
-        self._done = True
-        self._success = False
-        self._data = args
-
-        if self.on_reject:
-            self.__call_fn__(self.on_reject, args)
 
 
 class CompletedDeferred(object):
@@ -159,67 +80,52 @@ class APIUserError(APIError):
         self.args = [code, message]
 
 
-def deferred(method):
+def promise(method):
     """
-    This complex decorator allows to wrap coroutine-like methods for JavaScript usage.
+    This complex decorator allows to wrap coroutine to be used in async/await
 
     Use it instead of @coroutine to call a method asynchronously from JS:
 
-    @deferred
+    @promise
     def sum(a, b):
         yield sleep(1)
         raise Return(a + b)
 
-    When called from JS, a Deferred object is returned (like in jQuery):
+    When called from JS, a Primise object is returned:
 
-    var d = sum(5, 10);
-    d.done(function(result)
+    async function test()
     {
-        // result is 15 asynchronously
-    });
-    d.fail(function(code, error)
-    {
-        // failed
-    });
-
-    And in more sophisticated form:
-
-    sum(5, 10).done(function(result)
-    {
-        // success
-    }).fail(function(code, error)
-    {
-        // failed
-    });
+        var result = await sum(5, 10);
+    }
 
     """
     def wrapper(*args, **kwargs):
-        d = Deferred()
 
-        def callback(f):
-            exc = f.exception()
-            if exc:
-                if isinstance(exc, BaseException) and not isinstance(exc, APIError):
-                    ex_type, ex, tb = f.exc_info()
-                    logging.error("BaseException in @deferred: " + str(ex) +
-                                  "\n" + "".join(traceback.format_tb(tb)))
+        # pull a handler from PromiseContext. every javascript call has to set one
+        handler = PromiseContext.current
 
-                    d.reject(500, exc.args)
-                else:
-                    d.reject(*exc.args)
+        def promise_callback(resolve, reject):
+
+            def callback(f):
+                # once the future done, reset the handler back to ours
+                PromiseContext.current = handler
+
+                exception = f.exception()
+                if exception:
+                    if not isinstance(exception, BaseException):
+                        if hasattr(exception, "stack"):
+                            reject(APIError(500, str(exception.stack)))
+                    raise reject(APIError(500, str(exception)))
+                resolve(f.result())
+
+            try:
+                # noinspection PyProtectedMember
+                future = coroutine(method)(*args, handler=handler)
+            except BaseException as exc:
+                reject(exc)
             else:
-                if f.result() is None:
-                    d.resolve()
-                else:
-                    d.resolve(*f.result())
+                IOLoop.current().add_future(future, callback)
 
-        try:
-            # noinspection PyProtectedMember
-            future = coroutine(method)(*args, handler=d._handler)
-        except BaseException as exc:
-            d.reject(*exc.args)
-        else:
-            IOLoop.current().add_future(future, callback)
-
-        return d
+        # return a new Promise
+        return new(handler.promise_type, promise_callback)
     return wrapper

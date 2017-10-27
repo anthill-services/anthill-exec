@@ -20,6 +20,7 @@ from common.source import NoSuchProjectError, SourceCodeRoot
 
 from datetime import datetime, timedelta
 
+import traceback
 import logging
 import ujson
 
@@ -764,7 +765,7 @@ class CommitDebugStreamController(a.StreamAdminController):
 
     @coroutine
     def on_started(self, *args, **kwargs):
-        
+
         logging.info("Session has been opened!")
         yield self._log("Session started!")
 
@@ -782,7 +783,7 @@ class CommitDebugStreamController(a.StreamAdminController):
         except JavascriptSessionError as e:
             raise a.StreamCommandError(e.code, str(e))
         except APIError as e:
-            raise a.StreamCommandError(e.code, str(e))
+            raise a.StreamCommandError(e.code, str(e) + "\n" + traceback.format_exc())
         except Exception as e:
             logging.exception("Error while calling method {0}".format(method_name))
             raise a.StreamCommandError(500, str(e))

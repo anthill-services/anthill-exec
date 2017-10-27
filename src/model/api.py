@@ -1,7 +1,7 @@
 
 import tornado.gen
 
-from util import deferred, Deferred, APIUserError, DeferredContext, APIError
+from util import promise, APIUserError, PromiseContext, APIError
 from tornado.gen import coroutine, Return, sleep, Future
 from common.internal import Internal, InternalError
 import options as _opts
@@ -10,105 +10,20 @@ import options as _opts
 API_TIMEOUT = 5
 
 
-@deferred
+@promise
 def sleep(delay, handler=None):
     yield tornado.gen.sleep(delay)
 
 
 def log(message):
-    handler = DeferredContext.current
+    handler = PromiseContext.current
     if handler:
         handler.log(message)
 
 
-@deferred
-def parallel(*items, **kwargs):
-
-    class Response(object):
-        def __init__(self):
-            self._success = None
-            self._data = None
-            self._code = None
-            self._message = None
-
-        def resolve(self, data=None, *ignored):
-            self._success = True
-            self._data = data
-
-        def reject(self, *args):
-            self._success = False
-
-            if len(args) >= 2:
-                self._code = args[0]
-                self._message = args[1]
-            elif len(args) == 1:
-                self._code = 500
-                self._message = args[0]
-            else:
-                self._code = 500
-                self._message = "Unknown"
-
-        @property
-        def success(self):
-            return self._success
-
-        @property
-        def code(self):
-            return self._code
-
-        @property
-        def data(self):
-            return self._data
-
-        @property
-        def message(self):
-            return self._message
-
-    def prepare(item):
-        if not isinstance(item, Deferred):
-            raise APIError(400, "Item is not a deferred!")
-
-        f = tornado.gen.Future()
-        item.done(lambda *args: f.set_result((True, args))).fail(lambda *args: f.set_result((False, args)))
-        return f
-
-    if len(items) == 1 and isinstance(items[0], list):
-        items = items[0]
-
-    futures = map(prepare, items)
-    futures_result = yield futures
-
-    def finalize(args):
-        success, data = args
-        response = Response()
-        if success:
-            response.resolve(*data)
-        else:
-            response.reject(*data)
-        return response
-
-    result = map(finalize, futures_result)
-    raise tornado.gen.Return(result)
-
-
-def res(result=None):
-    if DeferredContext.current:
-        DeferredContext.current.res(result)
-
-
-def error(*args):
-    if len(args) >= 2:
-        exception = APIUserError(args[0], args[1])
-    elif len(args) >= 1 and isinstance(args[0], (Exception, str)):
-        exception = APIUserError(500, str(args[0]))
-    else:
-        exception = APIUserError(500, "Internal Script Error")
-    return exception
-
-
 class ConfigAPI(object):
 
-    @deferred
+    @promise
     def get(self, handler=None, *ignored):
 
         app_name = handler.env["application_name"]
@@ -126,7 +41,7 @@ class ConfigAPI(object):
                 "config", "get_configuration",
                 timeout=API_TIMEOUT,
                 app_name=app_name,
-                app_version=app_version)
+                app_version=app_version,)
         except InternalError as e:
             raise APIError(e.code, e.body)
 
@@ -136,7 +51,7 @@ class ConfigAPI(object):
 
 class StoreAPI(object):
 
-    @deferred
+    @promise
     def get(self, name, handler=None, *ignored):
 
         if not isinstance(name, (unicode, str)):
@@ -161,7 +76,7 @@ class StoreAPI(object):
         handler.set_cache(key, config)
         raise Return([config])
 
-    @deferred
+    @promise
     def new_order(self, store, item, currency, amount, component, handler=None, *ignored):
 
         internal = Internal()
@@ -182,7 +97,7 @@ class StoreAPI(object):
 
         raise Return([result])
 
-    @deferred
+    @promise
     def update_order(self, order_id, handler=None, *ignored):
 
         internal = Internal()
@@ -199,7 +114,7 @@ class StoreAPI(object):
 
         raise Return([result])
 
-    @deferred
+    @promise
     def update_orders(self, handler=None, *ignored):
 
         internal = Internal()
@@ -218,7 +133,7 @@ class StoreAPI(object):
 
 class ProfileAPI(object):
 
-    @deferred
+    @promise
     def get(self, path="", handler=None, *ignored):
 
         if not isinstance(path, (unicode, str)):
@@ -244,7 +159,7 @@ class ProfileAPI(object):
         handler.set_cache(key, profile)
         raise Return([profile])
 
-    @deferred
+    @promise
     def update(self, profile=None, path="", merge=True, handler=None, *ignored):
 
         if not isinstance(path, (unicode, str)):
@@ -274,7 +189,7 @@ class ProfileAPI(object):
 
 class SocialAPI(object):
 
-    @deferred
+    @promise
     def acquire_name(self, kind, name, handler=None, *ignored):
         internal = Internal()
 
@@ -290,7 +205,7 @@ class SocialAPI(object):
 
         raise Return([profile])
 
-    @deferred
+    @promise
     def check_name(self, kind, name, handler=None, *ignored):
         internal = Internal()
 
@@ -305,7 +220,7 @@ class SocialAPI(object):
 
         raise Return([account_id])
 
-    @deferred
+    @promise
     def release_name(self, kind, handler=None, *ignored):
         internal = Internal()
 
@@ -320,7 +235,7 @@ class SocialAPI(object):
 
         raise Return([released])
 
-    @deferred
+    @promise
     def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
         if path and not isinstance(path, (list, tuple)):
             raise APIError(code=400, message="Path should be a list/tuple")
@@ -341,7 +256,7 @@ class SocialAPI(object):
 
         raise Return([profile])
 
-    @deferred
+    @promise
     def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, handler=None, *ignored):
         if not isinstance(group_profiles, dict):
             raise APIError(code=400, message="Group profiles should be a dict")
@@ -367,7 +282,7 @@ class SocialAPI(object):
 
 class MessageAPI(object):
 
-    @deferred
+    @promise
     def send_batch(self, sender, messages, authoritative=True, handler=None, *ignored):
 
         internal = Internal()
@@ -387,7 +302,7 @@ class MessageAPI(object):
 
 class PromoAPI(object):
 
-    @deferred
+    @promise
     def use_code(self, key, handler=None, *ignored):
 
         internal = Internal()
@@ -410,27 +325,6 @@ class PromoAPI(object):
         raise Return([result])
 
 
-class CompletedDeferred(object):
-    def __init__(self, success, code=0, message=None):
-        self.success = success
-        self.code = code
-        self.message = message
-
-    def done(self, func):
-        if self.success is True:
-            func(True)
-        return self
-
-    def fail(self, func):
-        if self.success is not True:
-            func(self.code, self.message)
-        return self
-
-
-def completed(success, code=0, message=None):
-    return CompletedDeferred(success, code, message)
-
-
 class APIS(object):
     config = ConfigAPI()
     store = StoreAPI()
@@ -444,8 +338,6 @@ def expose(context):
     context.expose_readonly(
         log=log,
         sleep=sleep,
-        parallel=parallel,
-        completed=completed,
 
         config=APIS.config,
         store=APIS.store,
@@ -454,5 +346,4 @@ def expose(context):
         message=APIS.message,
         promo=APIS.promo,
 
-        error=error,
-        res=res)
+        Error=APIUserError)

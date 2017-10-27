@@ -3,11 +3,11 @@ import datetime
 
 from tornado.gen import coroutine, Return, with_timeout, Future, TimeoutError
 # noinspection PyUnresolvedReferences
-from v8py import JSException, Context, new, JavaScriptTerminated
+from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated
 
 from common.access import InternalError
 from common.validate import validate
-from util import APIError, APIUserError, DeferredContext, JavascriptCallHandler
+from util import APIError, APIUserError, PromiseContext, JavascriptCallHandler
 from expiringdict import ExpiringDict
 
 
@@ -24,7 +24,7 @@ class JavascriptSession(object):
 
     CALL_BLACKLIST = ["release"]
 
-    def __init__(self, build, instance, env, log, debug):
+    def __init__(self, build, instance, env, log, debug, promise_type):
         self.build = build
         self.instance = instance
         self.cache = ExpiringDict(10, 60)
@@ -32,6 +32,7 @@ class JavascriptSession(object):
 
         self.log = log
         self.debug = debug
+        self.promise_type = promise_type
 
     @coroutine
     def call_internal_method(self, method_name, args, call_timeout=10):
@@ -41,11 +42,10 @@ class JavascriptSession(object):
         if not method:
             return
 
-        future = Future()
-        handler = JavascriptCallHandler(future, self.cache, self.env, debug=self.debug)
+        handler = JavascriptCallHandler(self.cache, self.env, debug=self.debug, promise_type=self.promise_type)
         if self.log:
             handler.log = self.log
-        DeferredContext.current = handler
+        PromiseContext.current = handler
 
         try:
             result = method(args)
@@ -60,11 +60,22 @@ class JavascriptSession(object):
             raise
         except Exception as e:
             raise APIError(500, e)
-        else:
-            if result:
-                raise Return(result)
+
+        # if the function is defined as 'async', a Promise will be returned
+        if isinstance(result, JSPromise):
+            future = Future()
+            # connect a promise right into the future
+            result.then(future.set_result, future.set_exception)
             if future.done():
+                exception = future.exception()
+                if exception and not isinstance(exception, BaseException):
+                    if hasattr(exception, "stack"):
+                        raise APIError(500, str(exception.stack))
+                    raise APIError(500, str(exception))
                 raise Return(future.result())
+        else:
+            # immediate result
+            raise Return(result)
 
         try:
             result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
@@ -91,11 +102,10 @@ class JavascriptSession(object):
 
         method = getattr(self.instance, method_name)
 
-        future = Future()
-        handler = JavascriptCallHandler(future, self.cache, self.env, debug=self.debug)
+        handler = JavascriptCallHandler(self.cache, self.env, debug=self.debug, promise_type=self.promise_type)
         if self.log:
             handler.log = self.log
-        DeferredContext.current = handler
+        PromiseContext.current = handler
 
         try:
             result = method(args, args)
@@ -110,11 +120,22 @@ class JavascriptSession(object):
             raise
         except Exception as e:
             raise APIError(500, e)
-        else:
-            if result:
-                raise Return(result)
+
+        # if the function is defined as 'async', a Promise will be returned
+        if isinstance(result, JSPromise):
+            future = Future()
+            # connect a promise right into the future
+            result.then(future.set_result, future.set_exception)
             if future.done():
+                exception = future.exception()
+                if exception and not isinstance(exception, BaseException):
+                    if hasattr(exception, "stack"):
+                        raise APIError(500, str(exception.stack))
+                    raise APIError(500, str(exception))
                 raise Return(future.result())
+        else:
+            # immediate result
+            raise Return(result)
 
         try:
             result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
@@ -130,9 +151,8 @@ class JavascriptSession(object):
     @validate(value="str")
     def eval(self, value):
 
-        future = Future()
-        handler = JavascriptCallHandler(future, self.cache, self.env)
-        DeferredContext.current = handler
+        handler = JavascriptCallHandler(self.cache, self.env)
+        PromiseContext.current = handler
 
         try:
             result = self.build.context.eval(str(value))
