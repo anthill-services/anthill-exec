@@ -717,7 +717,7 @@ class CommitDebugStreamController(a.StreamAdminController):
     @coroutine
     @validate(account="int", application_name="str_name", application_version="str_name", commit="str_name",
               class_name="str_name", session_args="json_dict")
-    def on_opened(self, account, application_name, application_version, commit, class_name, session_args):
+    def prepared(self, account, application_name, application_version, commit, class_name, session_args):
         if not account:
             raise a.ActionError("Bad account")
 
@@ -762,19 +762,11 @@ class CommitDebugStreamController(a.StreamAdminController):
         # define instance for debugging purposes
         self.build.context.glob.instance = self.session.instance
 
+    @coroutine
+    def on_started(self, *args, **kwargs):
+        
         logging.info("Session has been opened!")
         yield self._log("Session started!")
-
-        try:
-            inited_result = yield self.session.init()
-            yield self.send_rpc(self, "inited", result=inited_result)
-
-        except JavascriptSessionError as e:
-            raise HTTPError(e.code, e.message)
-        except APIError as e:
-            raise HTTPError(e.code, e.message)
-        except Exception as e:
-            raise HTTPError(500, str(e))
 
     @coroutine
     @validate(method_name="str", arguments="json_dict")
