@@ -1,19 +1,19 @@
 
 import tornado.gen
 
-from util import promise, APIUserError, PromiseContext, APIError
-from tornado.gen import coroutine, Return, sleep, Future
-from tornado.simple_httpclient import SimpleAsyncHTTPClient
+from tornado.gen import Return, sleep
 from tornado.httpclient import HTTPRequest, HTTPError
+from tornado.simple_httpclient import SimpleAsyncHTTPClient
 
-from common.internal import Internal, InternalError
-
+# noinspection PyUnresolvedReferences
 import options as _opts
-
+from common.internal import Internal, InternalError
+from util import promise, APIUserError, PromiseContext, APIError
 
 API_TIMEOUT = 5
 
 
+# noinspection PyUnusedLocal
 @promise
 def sleep(delay, handler=None):
     yield tornado.gen.sleep(delay)
@@ -25,6 +25,7 @@ def log(message):
         handler.log(message)
 
 
+# noinspection PyUnusedLocal
 class WebAPI(object):
     def __init__(self):
         self.http_client = SimpleAsyncHTTPClient()
@@ -43,6 +44,7 @@ class WebAPI(object):
         raise Return(body)
 
 
+# noinspection PyUnusedLocal
 class ConfigAPI(object):
 
     @promise
@@ -66,6 +68,7 @@ class ConfigAPI(object):
         raise Return(info)
 
 
+# noinspection PyUnusedLocal
 class StoreAPI(object):
 
     @promise
@@ -148,13 +151,14 @@ class StoreAPI(object):
         raise Return(result)
 
 
+# noinspection PyUnusedLocal
 class ProfileAPI(object):
 
     @promise
     def get(self, path="", handler=None, *ignored):
 
         if not isinstance(path, (unicode, str)):
-            raise APIError(code=400, message="Path should be a string")
+            raise APIError(400, "Path should be a string")
 
         key = "profile:" + str(path)
         cached = handler.get_cache(key)
@@ -180,7 +184,7 @@ class ProfileAPI(object):
     def update(self, profile=None, path="", merge=True, handler=None, *ignored):
 
         if not isinstance(path, (unicode, str)):
-            raise APIError(code=400, message="Path should be a string")
+            raise APIError(400, "Path should be a string")
 
         key = "profile:" + str(path)
         if not profile:
@@ -204,6 +208,7 @@ class ProfileAPI(object):
         raise Return(profile)
 
 
+# noinspection PyUnusedLocal
 class SocialAPI(object):
 
     @promise
@@ -255,7 +260,7 @@ class SocialAPI(object):
     @promise
     def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
         if path and not isinstance(path, (list, tuple)):
-            raise APIError(code=400, message="Path should be a list/tuple")
+            raise APIError(400, "Path should be a list/tuple")
 
         internal = Internal()
 
@@ -276,10 +281,10 @@ class SocialAPI(object):
     @promise
     def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, handler=None, *ignored):
         if not isinstance(group_profiles, dict):
-            raise APIError(code=400, message="Group profiles should be a dict")
+            raise APIError(400, "Group profiles should be a dict")
 
         if path and not isinstance(path, (list, tuple)):
-            raise APIError(code=400, message="Path should be a list/tuple")
+            raise APIError(400, "Path should be a list/tuple")
 
         internal = Internal()
 
@@ -298,6 +303,7 @@ class SocialAPI(object):
         raise Return(profile)
 
 
+# noinspection PyUnusedLocal
 class MessageAPI(object):
 
     @promise
@@ -318,6 +324,7 @@ class MessageAPI(object):
         raise Return("OK")
 
 
+# noinspection PyUnusedLocal
 class PromoAPI(object):
 
     @promise
