@@ -3,7 +3,11 @@ import tornado.gen
 
 from util import promise, APIUserError, PromiseContext, APIError
 from tornado.gen import coroutine, Return, sleep, Future
+from tornado.simple_httpclient import SimpleAsyncHTTPClient
+from tornado.httpclient import HTTPRequest, HTTPError
+
 from common.internal import Internal, InternalError
+
 import options as _opts
 
 
@@ -21,6 +25,24 @@ def log(message):
         handler.log(message)
 
 
+class WebAPI(object):
+    def __init__(self):
+        self.http_client = SimpleAsyncHTTPClient()
+
+    @promise
+    def get(self, url, headers=None, *args, **kwargs):
+        request = HTTPRequest(url=url, use_gzip=True, headers=headers)
+
+        try:
+            response = yield self.http_client.fetch(request)
+        except HTTPError as e:
+            raise APIError(e.code, e.message)
+
+        body = response.body
+
+        raise Return(body)
+
+
 class ConfigAPI(object):
 
     @promise
@@ -29,24 +51,19 @@ class ConfigAPI(object):
         app_name = handler.env["application_name"]
         app_version = handler.env["application_version"]
 
-        key = "config:" + str(app_name) + "/" + str(app_version)
-        cached = handler.get_cache(key)
-        if cached:
-            raise Return([cached])
-
         internal = Internal()
 
         try:
-            config = yield internal.request(
+            info = yield internal.request(
                 "config", "get_configuration",
                 timeout=API_TIMEOUT,
                 app_name=app_name,
-                app_version=app_version,)
+                app_version=app_version,
+                gamespace=handler.env["gamespace"])
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        handler.set_cache(key, config)
-        raise Return([config])
+        raise Return(info)
 
 
 class StoreAPI(object):
@@ -55,7 +72,7 @@ class StoreAPI(object):
     def get(self, name, handler=None, *ignored):
 
         if not isinstance(name, (unicode, str)):
-            raise APIError(code=400, message="name should be a string")
+            raise APIError(400, "name should be a string")
 
         key = "store:" + str(name)
         cached = handler.get_cache(key)
@@ -74,7 +91,7 @@ class StoreAPI(object):
             raise APIError(e.code, e.body)
 
         handler.set_cache(key, config)
-        raise Return([config])
+        raise Return(config)
 
     @promise
     def new_order(self, store, item, currency, amount, component, handler=None, *ignored):
@@ -95,7 +112,7 @@ class StoreAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([result])
+        raise Return(result)
 
     @promise
     def update_order(self, order_id, handler=None, *ignored):
@@ -112,7 +129,7 @@ class StoreAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([result])
+        raise Return(result)
 
     @promise
     def update_orders(self, handler=None, *ignored):
@@ -128,7 +145,7 @@ class StoreAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([result])
+        raise Return(result)
 
 
 class ProfileAPI(object):
@@ -142,7 +159,7 @@ class ProfileAPI(object):
         key = "profile:" + str(path)
         cached = handler.get_cache(key)
         if cached:
-            raise Return([cached])
+            raise Return(cached)
 
         internal = Internal()
 
@@ -157,7 +174,7 @@ class ProfileAPI(object):
             raise APIError(e.code, e.body)
 
         handler.set_cache(key, profile)
-        raise Return([profile])
+        raise Return(profile)
 
     @promise
     def update(self, profile=None, path="", merge=True, handler=None, *ignored):
@@ -184,7 +201,7 @@ class ProfileAPI(object):
             raise APIError(e.code, e.body)
 
         handler.set_cache(key, profile)
-        raise Return([profile])
+        raise Return(profile)
 
 
 class SocialAPI(object):
@@ -203,7 +220,7 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([profile])
+        raise Return(profile)
 
     @promise
     def check_name(self, kind, name, handler=None, *ignored):
@@ -218,7 +235,7 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([account_id])
+        raise Return(account_id)
 
     @promise
     def release_name(self, kind, handler=None, *ignored):
@@ -233,7 +250,7 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([released])
+        raise Return(released)
 
     @promise
     def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
@@ -254,7 +271,7 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return([profile])
+        raise Return(profile)
 
     @promise
     def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, handler=None, *ignored):
@@ -277,7 +294,8 @@ class SocialAPI(object):
                 synced=synced)
         except InternalError as e:
             raise APIError(e.code, e.body)
-        raise Return([profile])
+
+        raise Return(profile)
 
 
 class MessageAPI(object):
@@ -297,7 +315,7 @@ class MessageAPI(object):
                 authoritative=authoritative)
         except InternalError as e:
             raise APIError(e.code, e.body)
-        raise Return(["OK"])
+        raise Return("OK")
 
 
 class PromoAPI(object):
@@ -322,7 +340,7 @@ class PromoAPI(object):
         except KeyError:
             raise APIError(500, "Response had no 'result' field.")
 
-        raise Return([result])
+        raise Return(result)
 
 
 class APIS(object):
@@ -332,6 +350,7 @@ class APIS(object):
     social = SocialAPI()
     message = MessageAPI()
     promo = PromoAPI()
+    web = WebAPI()
 
 
 def expose(context):
@@ -339,6 +358,7 @@ def expose(context):
         log=log,
         sleep=sleep,
 
+        web=APIS.web,
         config=APIS.config,
         store=APIS.store,
         profile=APIS.profile,

@@ -136,14 +136,20 @@ class JavascriptBuild(object):
             # if the function is defined as 'async', a Promise will be returned
             if isinstance(result, JSPromise):
                 future = Future()
-                # connect a promise right into the future
-                result.then(future.set_result, future.set_exception)
-                if future.done():
-                    exception = future.exception()
-                    if exception and not isinstance(exception, BaseException):
+
+                def error(exception):
+                    if isinstance(exception, BaseException):
+                        future.set_exception(exception)
+                    else:
                         if hasattr(exception, "stack"):
-                            raise APIError(500, str(exception.stack))
-                        raise APIError(500, str(exception))
+                            future.set_exception(APIError(500, str(exception.stack)))
+                        else:
+                            future.set_exception(APIError(500, str(exception)))
+
+                # connect a promise right into the future
+                result.then(future.set_result, error)
+
+                if future.done():
                     raise Return(future.result())
             else:
                 # immediate result

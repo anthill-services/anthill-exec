@@ -23,18 +23,26 @@ class JavascriptCallHandler(object):
         logging.info(message)
 
     def get_cache(self, key):
-        return self.cache.get(key) if self.cache else None
+        return self.cache.get(key) if self.cache is not None else None
 
     def set_cache(self, key, value):
-        if self.cache:
+        if self.cache is not None:
             self.cache[key] = value
 
 
 class APIError(Exception):
-    def __init__(self, code, message):
-        self.code = code
-        self.message = message
-        self.args = [code, message]
+    def __init__(self, _code, _message):
+        self._code = _code
+        self._message = _message
+        self.args = [_code, _message]
+
+    @property
+    def code(self):
+        return self._code
+
+    @property
+    def message(self):
+        return self._message
 
     def __str__(self):
         return str(self.code) + ": " + str(self.message)
@@ -75,9 +83,7 @@ class DeferredAPI(object):
 
 class APIUserError(APIError):
     def __init__(self, code, message):
-        self.code = code
-        self.message = message
-        self.args = [code, message]
+        super(APIUserError, self).__init__(code, message)
 
 
 def promise(method):
@@ -112,10 +118,14 @@ def promise(method):
 
                 exception = f.exception()
                 if exception:
-                    if not isinstance(exception, BaseException):
+                    if isinstance(exception, BaseException):
+                        reject(exception)
+                    else:
                         if hasattr(exception, "stack"):
                             reject(APIError(500, str(exception.stack)))
-                    raise reject(APIError(500, str(exception)))
+                        else:
+                            reject(APIError(500, str(exception)))
+
                 resolve(f.result())
 
             try:

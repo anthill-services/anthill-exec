@@ -1,5 +1,4 @@
 
-import datetime
 
 from tornado.gen import coroutine, Return, with_timeout, Future, TimeoutError
 # noinspection PyUnresolvedReferences
@@ -9,6 +8,10 @@ from common.access import InternalError
 from common.validate import validate
 from util import APIError, APIUserError, PromiseContext, JavascriptCallHandler
 from expiringdict import ExpiringDict
+
+import datetime
+import sys
+import logging
 
 
 class JavascriptSessionError(Exception):
@@ -64,14 +67,20 @@ class JavascriptSession(object):
         # if the function is defined as 'async', a Promise will be returned
         if isinstance(result, JSPromise):
             future = Future()
-            # connect a promise right into the future
-            result.then(future.set_result, future.set_exception)
-            if future.done():
-                exception = future.exception()
-                if exception and not isinstance(exception, BaseException):
+
+            def error(exception):
+                if isinstance(exception, BaseException):
+                    future.set_exception(exception)
+                else:
                     if hasattr(exception, "stack"):
-                        raise APIError(500, str(exception.stack))
-                    raise APIError(500, str(exception))
+                        future.set_exception(APIError(500, str(exception.stack)))
+                    else:
+                        future.set_exception(APIError(500, str(exception)))
+
+            # connect a promise right into the future
+            result.then(future.set_result, error)
+
+            if future.done():
                 raise Return(future.result())
         else:
             # immediate result
@@ -124,14 +133,20 @@ class JavascriptSession(object):
         # if the function is defined as 'async', a Promise will be returned
         if isinstance(result, JSPromise):
             future = Future()
-            # connect a promise right into the future
-            result.then(future.set_result, future.set_exception)
-            if future.done():
-                exception = future.exception()
-                if exception and not isinstance(exception, BaseException):
+
+            def error(exception):
+                if isinstance(exception, BaseException):
+                    future.set_exception(exception)
+                else:
                     if hasattr(exception, "stack"):
-                        raise APIError(500, str(exception.stack))
-                    raise APIError(500, str(exception))
+                        future.set_exception(APIError(500, str(exception.stack)))
+                    else:
+                        future.set_exception(APIError(500, str(exception)))
+
+            # connect a promise right into the future
+            result.then(future.set_result, error)
+
+            if future.done():
                 raise Return(future.result())
         else:
             # immediate result
