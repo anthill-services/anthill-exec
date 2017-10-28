@@ -1,6 +1,6 @@
 # Exec Service
 
-Every multiplayer projects needs to run the game code on the backend side.
+Every multiplayer project needs to run the game code on the backend side.
 <a href="https://github.com/anthill-platform/anthill-game">Game Service</a>
 perfectly does that task. But sometimes you don't need that kind
 of complicity and just to want a simple script that players can connect to
