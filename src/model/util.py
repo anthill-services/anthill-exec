@@ -126,7 +126,12 @@ def promise(method):
                         else:
                             reject(APIError(500, str(exception)))
 
-                resolve(f.result())
+                try:
+                    res = f.result()
+                except BaseException as exc:
+                    reject(exc)
+                else:
+                    resolve(res)
 
             try:
                 # noinspection PyProtectedMember
