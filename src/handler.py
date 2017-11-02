@@ -8,7 +8,7 @@ from common.internal import InternalError
 from common.validate import validate
 import common.handler
 
-from model.util import APIError
+from model.util import JavascriptExecutionError
 from model.build import JavascriptBuildError, JavascriptSessionError
 from model.sources import SourceCodeError, NoSuchSourceError, JavascriptSourceError
 from common.jsonrpc import JsonRPCError
@@ -75,10 +75,10 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
 
         except JavascriptSessionError as e:
             raise HTTPError(e.code, e.message)
-        except APIError as e:
+        except JavascriptExecutionError as e:
             if options.debug:
-                logging.exception("API Error")
-                self.write(str(e.message) + "\n" + traceback.format_exc())
+                logging.error("API Error: \n" + str(e.traceback))
+                self.write(str(e.message) + "\n" + str(e.traceback))
                 self.set_status(e.code, str(e.message))
                 self.finish()
                 return
@@ -98,9 +98,9 @@ class CallSessionHandler(common.handler.JsonRPCWSHandler):
             result = yield self.session.call(method_name, arguments)
         except JavascriptSessionError as e:
             raise JsonRPCError(e.code, e.message)
-        except APIError as e:
+        except JavascriptExecutionError as e:
             if options.debug:
-                raise JsonRPCError(e.code, e.message, traceback.format_exc())
+                raise JsonRPCError(e.code, e.message, e.traceback)
             raise JsonRPCError(e.code, e.message)
         except Exception as e:
             raise JsonRPCError(500, str(e))
@@ -157,10 +157,10 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
 
         except JavascriptSessionError as e:
             raise HTTPError(e.code, e.message)
-        except APIError as e:
+        except JavascriptExecutionError as e:
             if options.debug:
-                logging.exception("API Error")
-                self.write(str(e.message) + "\n" + traceback.format_exc())
+                logging.error("API Error: \n" + str(e.traceback))
+                self.write(str(e.message) + "\n" + str(e.traceback))
                 self.set_status(e.code, str(e.message))
                 self.finish()
                 return
@@ -194,11 +194,14 @@ class InternalHandler(object):
                                        **env)
 
         except JavascriptSessionError as e:
-            raise HTTPError(e.code, e.message)
-        except APIError as e:
-            raise HTTPError(e.code, e.message)
+            raise InternalError(e.code, e.message)
+        except JavascriptExecutionError as e:
+            if options.debug:
+                logging.error("API Error: " + str(e.traceback))
+                raise InternalError(e.code, str(e.message) + ": " + str(e.traceback))
+            raise InternalError(e.code, e.message)
         except Exception as e:
-            raise HTTPError(500, str(e))
+            raise InternalError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)

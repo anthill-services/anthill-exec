@@ -9,8 +9,11 @@ from common.model import Model
 from common.access import InternalError
 from common.source import SourceCodeRoot, SourceCommitAdapter, SourceProjectAdapter, SourceCodeError
 from common.validate import validate
+
 from session import JavascriptSession, JavascriptSessionError
-from util import APIError, APIUserError, PromiseContext, JavascriptCallHandler
+from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, process_error
+
+import stdlib
 
 from common.options import options
 import datetime
@@ -39,13 +42,20 @@ class JavascriptBuild(object):
     def __init__(self, build_id=None, model=None, source_path=None):
         self.build_id = build_id
         self.model = model
-        self.context = Context()
+        self.context = Context(timeout=0.5)
         self.promise_type = self.context.glob.Promise
 
         # this variable holds amount of users of this build. once this variable hits back to zero,
         # a 30 sec timer will start to release this build
         self.refs = 0
         self._remove_timeout = None
+
+        try:
+            script = Script(source=stdlib.source, filename=stdlib.name)
+            self.context.eval(script)
+        except Exception as e:
+            logging.exception("Error while compiling stdlib.js")
+            raise JavascriptBuildError(500, str(e))
 
         if source_path:
             for file_name in os.listdir(source_path):
@@ -66,9 +76,10 @@ class JavascriptBuild(object):
         if self.build_id:
             logging.info("Created new build {0}".format(self.build_id))
 
-    @validate(source_code="str")
-    def add_source(self, source_code):
-        self.context.eval(source_code)
+    @validate(source_code="str", filename="str")
+    def add_source(self, source_code, filename=None):
+        script = Script(source=source_code, filename=filename)
+        self.context.eval(script)
 
     @validate(class_name="str_name", args="json_dict")
     def session(self, class_name, args, log=None, debug=None, **env):
@@ -120,31 +131,32 @@ class JavascriptBuild(object):
 
         try:
             try:
-                result = method(args, timeout=1.0)
+                result = method(args)
             except JSException as e:
-                raise APIError(500, e.message)
-            except JavaScriptTerminated:
-                raise APIError(408, "Evaluation process timeout: function shouldn't be blocking and "
-                                    "should rely on async methods instead.")
+                value = e.value
+                if hasattr(value, "code"):
+                    raise JavascriptExecutionError(value.code, value.message)
+                if hasattr(e, "stack"):
+                    raise JavascriptExecutionError(500, str(e), stack=str(e.stack))
+                raise JavascriptExecutionError(500, str(e))
+            except APIError as e:
+                raise JavascriptExecutionError(e.code, e.message)
             except InternalError as e:
-                raise APIError(e.code, "Internal error: " + e.body)
-            except APIError:
-                raise
+                raise JavascriptExecutionError(
+                    e.code, "Internal error: " + e.body)
+            except JavaScriptTerminated:
+                raise JavascriptExecutionError(
+                    408, "Evaluation process timeout: function shouldn't be "
+                         "blocking and should rely on async methods instead.")
             except Exception as e:
-                raise APIError(500, e)
+                raise JavascriptExecutionError(500, str(e))
 
             # if the function is defined as 'async', a Promise will be returned
             if isinstance(result, JSPromise):
                 future = Future()
 
-                def error(exception):
-                    if isinstance(exception, BaseException):
-                        future.set_exception(exception)
-                    else:
-                        if hasattr(exception, "stack"):
-                            future.set_exception(APIError(500, str(exception.stack)))
-                        else:
-                            future.set_exception(APIError(500, str(exception)))
+                def error(e):
+                    future.set_exception(process_error(e))
 
                 # connect a promise right into the future
                 result.then(future.set_result, error)
@@ -160,12 +172,6 @@ class JavascriptBuild(object):
             except TimeoutError:
                 raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                     method_name, call_timeout))
-            except InternalError as e:
-                raise APIError(e.code, "Internal error: " + e.body)
-            except APIError:
-                raise
-            except Exception as e:
-                raise APIError(500, e)
             else:
                 raise Return(result)
 

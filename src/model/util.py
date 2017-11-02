@@ -1,5 +1,5 @@
 
-from tornado.gen import coroutine, Return, with_timeout
+from tornado.gen import coroutine
 from tornado.ioloop import IOLoop
 
 # noinspection PyUnresolvedReferences
@@ -8,6 +8,9 @@ from v8py import JSFunction, new, JSPromise, JSException, current_context, JavaS
 import ujson
 import logging
 import traceback
+
+from common.options import options
+from common.internal import InternalError
 
 
 class JavascriptCallHandler(object):
@@ -28,6 +31,44 @@ class JavascriptCallHandler(object):
     def set_cache(self, key, value):
         if self.cache is not None:
             self.cache[key] = value
+
+
+class JavascriptExecutionError(Exception):
+    def __init__(self, code, message, stack=None):
+        self.code = code
+        self.message = message
+        self.traceback = stack or (traceback.format_exc() if options.debug else None)
+
+    def __str__(self):
+        return str(self.code) + ": " + str(self.message)
+
+
+def process_error(e):
+    if isinstance(e, JSException):
+        value = e.value
+        if hasattr(value, "code"):
+            return JavascriptExecutionError(value.code, value.message)
+        if hasattr(e, "stack"):
+            return JavascriptExecutionError(500, str(e), stack=str(e.stack))
+        return JavascriptExecutionError(500, str(e))
+
+    if isinstance(e, APIError):
+        return JavascriptExecutionError(e.code, e.message, stack=str(e.stack) if hasattr(e, "stack") else None)
+
+    if isinstance(e, InternalError):
+        return JavascriptExecutionError(
+            e.code, "Internal error: " + e.body)
+
+    if isinstance(e, JavaScriptTerminated):
+        return JavascriptExecutionError(
+            408, "Evaluation process timeout: function shouldn't be "
+                 "blocking and should rely on async methods instead.")
+
+    code = e.code if hasattr(e, "code") else 500
+    stack = e.stack if hasattr(e, "stack") else None
+    message = e.message if hasattr(e, "message") else str(e)
+
+    return JavascriptExecutionError(code, message, stack=stack)
 
 
 class APIError(Exception):
@@ -118,25 +159,16 @@ def promise(method):
 
                 exception = f.exception()
                 if exception:
-                    if isinstance(exception, BaseException):
-                        reject(exception)
-                    else:
-                        if hasattr(exception, "stack"):
-                            reject(APIError(500, str(exception.stack)))
-                        else:
-                            reject(APIError(500, str(exception)))
-
-                try:
-                    res = f.result()
-                except BaseException as exc:
-                    reject(exc)
+                    exception.stack = "".join(traceback.format_tb(f.exc_info()[2]))
+                    reject(exception)
                 else:
-                    resolve(res)
+                    resolve(f.result())
 
             try:
                 # noinspection PyProtectedMember
                 future = coroutine(method)(*args, handler=handler)
             except BaseException as exc:
+                exc.stack = traceback.format_exc()
                 reject(exc)
             else:
                 IOLoop.current().add_future(future, callback)

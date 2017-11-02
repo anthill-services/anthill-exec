@@ -9,13 +9,13 @@ from v8py import JSException, Context, new
 from server import ExecServer
 
 from model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError
-from model.build import NoSuchClass, NoSuchMethod, APIError, APIUserError
+from model.build import NoSuchClass, NoSuchMethod, JavascriptExecutionError
 
 import options as _opts
 from common import random_string, testing
 import hashlib
 import inspect
-import traceback
+import re
 
 
 def is_debugging():
@@ -195,11 +195,11 @@ class FunctionsTestCase(testing.ServerTestCase):
 
         try:
             yield build.call("main", {})
-        except APIUserError as error:
+        except JavascriptExecutionError as error:
             self.assertEqual(error.code, 400)
             self.assertEqual(error.message, "bad_idea")
         else:
-            self.fail("Expected APIUserError")
+            self.fail("Expected APIError")
 
     @gen_test
     def test_api_error_traceback(self):
@@ -229,16 +229,26 @@ class FunctionsTestCase(testing.ServerTestCase):
             }
 
             main.allow_call = true;
-        """)
+        """, filename="test_api_error.js")
 
         try:
             yield build.call("main", {})
-        except APIUserError as error:
-            traceback.print_exc()
+        except JavascriptExecutionError as error:
             self.assertEqual(error.code, 400)
             self.assertEqual(error.message, "bad_idea")
+
+            if not re.search("\s+File \"test_api_error.js-[0-9]+\", line 20, in main"
+                             "\s+c\(\);"
+                             "\s+File \"test_api_error\.js-[0-9]+\", line 15, in c"
+                             "\s+b\(\);"
+                             "\s+File \"test_api_error\.js-[0-9]+\", line 10, in b"
+                             "\s+a\(\);"
+                             "\s+File \"test_api_error\.js-[0-9]+\", line 5, in a"
+                             "\s+throw new Error\(400, \"bad_idea\"\);", error.traceback, re.MULTILINE):
+                self.fail("Traceback does not match: " + error.traceback)
+
         else:
-            self.fail("Expected APIUserError")
+            self.fail("Expected APIError")
 
     @gen_test
     def test_api_error_callback(self):
@@ -255,7 +265,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        with self.assertRaises(APIError) as error:
+        with self.assertRaises(JavascriptExecutionError) as error:
             yield build.call("main", {})
 
         self.assertEqual(error.exception.code, 400)
@@ -549,13 +559,13 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        with self.assertRaises(APIError) as error:
+        with self.assertRaises(JavascriptExecutionError) as error:
             yield build.call("main", {})
 
         self.assertEqual(error.exception.code, 408)
 
-    @gen_test(timeout=1.5)
-    def __test_timeout_in_callback(self):
+    @gen_test(timeout=1)
+    def test_timeout_in_callback(self):
         """
         This function ensures that infinite loops inside the callbacks also can be caught by timeout
         """
@@ -573,7 +583,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        with self.assertRaises(APIError) as error:
+        with self.assertRaises(JavascriptExecutionError) as error:
             yield build.call("main", {})
 
         self.assertEqual(error.exception.code, 408)

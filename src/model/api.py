@@ -8,7 +8,7 @@ from tornado.simple_httpclient import SimpleAsyncHTTPClient
 # noinspection PyUnresolvedReferences
 import options as _opts
 from common.internal import Internal, InternalError
-from util import promise, APIUserError, PromiseContext, APIError
+from util import promise, PromiseContext, APIError
 
 API_TIMEOUT = 5
 
@@ -371,6 +371,4 @@ def expose(context):
         profile=APIS.profile,
         social=APIS.social,
         message=APIS.message,
-        promo=APIS.promo,
-
-        Error=APIUserError)
+        promo=APIS.promo)

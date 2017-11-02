@@ -6,7 +6,7 @@ from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated
 
 from common.access import InternalError
 from common.validate import validate
-from util import APIError, APIUserError, PromiseContext, JavascriptCallHandler
+from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, process_error
 from expiringdict import ExpiringDict
 
 import datetime
@@ -53,29 +53,30 @@ class JavascriptSession(object):
         try:
             result = method(args)
         except JSException as e:
-            raise APIError(500, e.message)
-        except JavaScriptTerminated:
-            raise APIError(408, "Evaluation process timeout: function shouldn't be blocking and "
-                                "should rely on async methods instead.")
+            value = e.value
+            if hasattr(value, "code"):
+                raise JavascriptExecutionError(value.code, value.message)
+            if hasattr(e, "stack"):
+                raise JavascriptExecutionError(500, str(e), stack=str(e.stack))
+            raise JavascriptExecutionError(500, str(e))
+        except APIError as e:
+            raise JavascriptExecutionError(e.code, e.message)
         except InternalError as e:
-            raise APIError(e.code, "Internal error: " + e.body)
-        except APIError:
-            raise
+            raise JavascriptExecutionError(
+                e.code, "Internal error: " + e.body)
+        except JavaScriptTerminated:
+            raise JavascriptExecutionError(
+                408, "Evaluation process timeout: function shouldn't be "
+                     "blocking and should rely on async methods instead.")
         except Exception as e:
-            raise APIError(500, e)
+            raise JavascriptExecutionError(500, str(e))
 
         # if the function is defined as 'async', a Promise will be returned
         if isinstance(result, JSPromise):
             future = Future()
 
-            def error(exception):
-                if isinstance(exception, BaseException):
-                    future.set_exception(exception)
-                else:
-                    if hasattr(exception, "stack"):
-                        future.set_exception(APIError(500, str(exception.stack)))
-                    else:
-                        future.set_exception(APIError(500, str(exception)))
+            def error(e):
+                future.set_exception(process_error(e))
 
             # connect a promise right into the future
             result.then(future.set_result, error)
@@ -91,8 +92,6 @@ class JavascriptSession(object):
         except TimeoutError:
             raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                 method_name, call_timeout))
-        except InternalError as e:
-            raise APIError(e.code, "Internal error: " + e.body)
         else:
             raise Return(result)
 
@@ -119,29 +118,30 @@ class JavascriptSession(object):
         try:
             result = method(args, args)
         except JSException as e:
-            raise APIError(500, e.message)
-        except JavaScriptTerminated:
-            raise APIError(408, "Evaluation process timeout: function shouldn't be blocking and "
-                                "should rely on async methods instead.")
+            value = e.value
+            if hasattr(value, "code"):
+                raise JavascriptExecutionError(value.code, value.message)
+            if hasattr(e, "stack"):
+                raise JavascriptExecutionError(500, str(e), stack=str(e.stack))
+            raise JavascriptExecutionError(500, str(e))
+        except APIError as e:
+            raise JavascriptExecutionError(e.code, e.message)
         except InternalError as e:
-            raise APIError(e.code, "Internal error: " + e.body)
-        except APIError:
-            raise
+            raise JavascriptExecutionError(
+                e.code, "Internal error: " + e.body)
+        except JavaScriptTerminated:
+            raise JavascriptExecutionError(
+                408, "Evaluation process timeout: function shouldn't be "
+                     "blocking and should rely on async methods instead.")
         except Exception as e:
-            raise APIError(500, e)
+            raise JavascriptExecutionError(500, str(e))
 
         # if the function is defined as 'async', a Promise will be returned
         if isinstance(result, JSPromise):
             future = Future()
 
-            def error(exception):
-                if isinstance(exception, BaseException):
-                    future.set_exception(exception)
-                else:
-                    if hasattr(exception, "stack"):
-                        future.set_exception(APIError(500, str(exception.stack)))
-                    else:
-                        future.set_exception(APIError(500, str(exception)))
+            def error(e):
+                future.set_exception(process_error(e))
 
             # connect a promise right into the future
             result.then(future.set_result, error)
@@ -157,8 +157,6 @@ class JavascriptSession(object):
         except TimeoutError:
             raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                 method_name, call_timeout))
-        except InternalError as e:
-            raise APIError(e.code, "Internal error: " + e.body)
         else:
             raise Return(result)
 
