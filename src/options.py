@@ -69,7 +69,7 @@ define("cache_max_connections",
 # JS
 
 define("source_dir",
-       default="/opt/local/exec-source",
+       default="/opt/local/anthill/exec-source",
        help="Directory the source repositories will be pulled into",
        type=str)
 
