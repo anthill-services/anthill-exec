@@ -79,7 +79,10 @@ class JavascriptSession(object):
                 future.set_exception(process_error(e))
 
             # connect a promise right into the future
-            result.then(future.set_result, error)
+            try:
+                result.then(future.set_result, error)
+            except Exception as e:
+                pass
 
             if future.done():
                 raise Return(future.result())
@@ -141,10 +144,14 @@ class JavascriptSession(object):
             future = Future()
 
             def error(e):
-                future.set_exception(process_error(e))
+                e = process_error(e)
+                future.set_exception(e)
 
             # connect a promise right into the future
-            result.then(future.set_result, error)
+            try:
+                result.then(future.set_result, error)
+            except Exception as e:
+                pass
 
             if future.done():
                 raise Return(future.result())
