@@ -767,7 +767,7 @@ class CommitDebugStreamController(a.StreamAdminController):
     def on_started(self, *args, **kwargs):
 
         logging.info("Session has been opened!")
-        yield self._log("Session started!")
+        self._log("Session started!")
 
     @coroutine
     @validate(method_name="str", arguments="json_dict")
@@ -788,7 +788,7 @@ class CommitDebugStreamController(a.StreamAdminController):
             logging.exception("Error while calling method {0}".format(method_name))
             raise a.StreamCommandError(500, str(e))
         finally:
-            yield self._log(time.done())
+            self._log(time.done())
 
         raise Return(result)
 
@@ -805,7 +805,7 @@ class CommitDebugStreamController(a.StreamAdminController):
         except Exception as e:
             raise a.StreamCommandError(500, str(e))
         finally:
-            yield self._log(time.done())
+            self._log(time.done())
 
         raise Return({
             "result": result
