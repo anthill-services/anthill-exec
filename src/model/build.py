@@ -222,23 +222,16 @@ class JavascriptBuild(object):
 
 class JavascriptBuildsModel(Model):
     def __init__(self, root_dir, sources):
-
-        ssh_public_key = os.path.expanduser(options.ssh_public_key)
-        ssh_private_key = os.path.expanduser(options.ssh_private_key)
-
-        with open(ssh_public_key, "r") as f:
-            self.ssh_public_key = f.read()
-
         self.sources = sources
-        self.root = SourceCodeRoot(root_dir, ssh_private_key=ssh_private_key)
+        self.root = SourceCodeRoot(root_dir)
         self.builds = {}
 
     @staticmethod
     def __get_build_id__(source):
         return str(source.name) + "_" + str(source.repository_commit)
 
-    def validate_repository_url(self, url):
-        return self.root.validate_repository_url(url)
+    def validate_repository_url(self, url, ssh_private_key=None):
+        return self.root.validate_repository_url(url, ssh_private_key=ssh_private_key)
 
     @coroutine
     @validate(source=SourceCommitAdapter)
@@ -250,7 +243,9 @@ class JavascriptBuildsModel(Model):
             raise Return(build)
 
         try:
-            project = self.root.project(source.name, source.repository_url, source.repository_branch)
+            project = self.root.project(source.gamespace_id, source.name,
+                                        source.repository_url, source.repository_branch,
+                                        source.ssh_private_key)
             yield project.init()
             source_build = project.build(source.repository_commit)
             yield source_build.init()
@@ -267,8 +262,9 @@ class JavascriptBuildsModel(Model):
 
         try:
             project = self.root.project(
-                project_settings.name, project_settings.repository_url,
-                project_settings.repository_branch)
+                project_settings.gamespace_id, project_settings.name,
+                project_settings.repository_url, project_settings.repository_branch,
+                project_settings.ssh_private_key)
             yield project.init()
             source_build = project.build(commit)
             yield source_build.init()
@@ -282,8 +278,9 @@ class JavascriptBuildsModel(Model):
     def get_project(self, project_settings):
         try:
             project_instance = self.root.project(
-                project_settings.name, project_settings.repository_url,
-                project_settings.repository_branch)
+                project_settings.gamespace_id, project_settings.name,
+                project_settings.repository_url, project_settings.repository_branch,
+                project_settings.ssh_private_key)
         except SourceCodeError as e:
             raise JavascriptBuildError(e.code, e.message)
         else:

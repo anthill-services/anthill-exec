@@ -50,8 +50,7 @@ class ApplicationController(a.AdminController):
             "app_record_id": app["id"],
             "app_name": app["title"],
             "versions": app["versions"],
-            "has_no_settings": has_no_settings,
-            "public_ssh_key": self.application.builds.ssh_public_key
+            "has_no_settings": has_no_settings
         }
 
         raise a.Return(result)
@@ -102,25 +101,27 @@ class ApplicationSettingsController(a.AdminController):
             project = yield sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError as e:
             repository_url = ""
+            ssh_private_key = ""
             repository_branch = SourceCodeRoot.DEFAULT_BRANCH
         else:
             repository_url = project.repository_url
             repository_branch = project.repository_branch
+            ssh_private_key = project.ssh_private_key
 
         result = {
             "app_id": app_id,
             "app_record_id": app["id"],
             "app_name": app["title"],
-            "public_ssh_key": self.application.builds.ssh_public_key,
             "repository_url": repository_url,
-            "repository_branch": repository_branch
+            "repository_branch": repository_branch,
+            "ssh_private_key": ssh_private_key
         }
 
         raise a.Return(result)
 
     @coroutine
     @validate(name="str_name", code="str", imports="str")
-    def update_settings(self, repository_url, repository_branch, *ignored):
+    def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
 
         app_id = self.context.get("app_id")
 
@@ -133,11 +134,11 @@ class ApplicationSettingsController(a.AdminController):
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
-        if not (yield builds.validate_repository_url(repository_url)):
+        if not (yield builds.validate_repository_url(repository_url, ssh_private_key)):
             raise a.ActionError("Error: \"{0}\" is not a valid Git repository URL, or "
-                                "the repository does not exist.".format(repository_url))
+                                "the repository does not exist, or the ssh key is wrong.".format(repository_url))
 
-        yield sources.update_project(self.gamespace, app_id, repository_url, repository_branch)
+        yield sources.update_project(self.gamespace, app_id, repository_url, repository_branch, ssh_private_key)
         raise a.Redirect("app_settings",
                          message="Application settings have been updated.",
                          app_id=app_id)
@@ -174,10 +175,13 @@ class ApplicationSettingsController(a.AdminController):
                 "repository_branch": a.field(
                     "Git branch to use on the source code repository", "text", "primary",
                     order=2),
-                "public_ssh_key": a.field(
-                    "Public SSH key", "readonly", "primary",
-                    multiline=3, description="""
-                                Please add this SSH key into user's SSH keys with read access to the repository above.
+                "ssh_private_key": a.field(
+                    "Private SSH key", "text", "primary",
+                    multiline=6, description="""
+                                Please generate SSH key pair, paste private key (for example, 
+                                <span class="label label-default">id_rsa</span>) here, and add public key (for example, 
+                                <span class="label label-default">id_rsa.pub</span>) into user's SSH keys with 
+                                read access to the repository above.
                                 For example, on GitHub, it can be done <a href="https://github.com/settings/keys" 
                                 target="_blank">here</a>.
                             """, order=3)
@@ -243,8 +247,7 @@ class ApplicationVersionController(a.AdminController):
             "app_name": app["title"],
             "versions": app["versions"],
             "current_commit": current_commit,
-            "commits_history": commits_history,
-            "public_ssh_key": self.application.builds.ssh_public_key
+            "commits_history": commits_history
         }
 
         raise a.Return(result)

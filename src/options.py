@@ -73,16 +73,6 @@ define("source_dir",
        help="Directory the source repositories will be pulled into",
        type=str)
 
-define("ssh_private_key",
-       default="~/.ssh/id_rsa",
-       help="Path to the SSH private key location for pulling source code",
-       type=str)
-
-define("ssh_public_key",
-       default="~/.ssh/id_rsa.pub",
-       help="Path to the SSH public key location for pulling source code (will be provided to the user)",
-       type=str)
-
 define("js_call_timeout",
        default=10,
        help="Maximum time limit for each script execution",
