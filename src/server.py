@@ -53,13 +53,7 @@ class ExecServer(common.server.Server):
             "apps": admin.ApplicationsController,
             "app": admin.ApplicationController,
             "app_version": admin.ApplicationVersionController,
-            "app_settings": admin.ApplicationSettingsController,
-            "debug_commit": admin.DebugCommitController
-        }
-
-    def get_admin_stream(self):
-        return {
-            "stream_debug": admin.CommitDebugStreamController
+            "app_settings": admin.ApplicationSettingsController
         }
 
     def get_metadata(self):
@@ -72,7 +66,8 @@ class ExecServer(common.server.Server):
     def get_handlers(self):
         return [
             (r"/call/(\w+)/(.*)/(\w+)", handler.CallActionHandler),
-            (r"/session/(\w+)/(.*)/(\w+)", handler.CallSessionHandler)
+            (r"/session/(\w+)/(.*)/(\w+)", handler.SessionHandler),
+            (r"/debug/(\w+)/(.*)/(\w+)", handler.SessionDebugHandler)
         ]
 
 

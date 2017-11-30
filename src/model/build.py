@@ -14,6 +14,7 @@ from session import JavascriptSession, JavascriptSessionError
 from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, process_error
 
 import stdlib
+from expiringdict import ExpiringDict
 
 from common.options import options
 import datetime
@@ -78,8 +79,11 @@ class JavascriptBuild(object):
 
     @validate(source_code="str", filename="str")
     def add_source(self, source_code, filename=None):
-        script = Script(source=source_code, filename=filename)
-        self.context.eval(script)
+        script = Script(source=str(source_code), filename=str(filename))
+        try:
+            self.context.eval(script)
+        except JSException as e:
+            raise JavascriptBuildError(500, e.message)
 
     @validate(class_name="str_name", args="json_dict")
     def session(self, class_name, args, log=None, debug=None, **env):
@@ -91,6 +95,13 @@ class JavascriptBuild(object):
         if not getattr(clazz, "allow_session", False):
             raise NoSuchClass()
 
+        cache = ExpiringDict(10, 60)
+
+        handler = JavascriptCallHandler(cache, env, debug=debug, promise_type=self.promise_type)
+        if log:
+            handler.log = log
+        PromiseContext.current = handler
+
         try:
             instance = new(clazz, args, env)
         except TypeError:
@@ -100,7 +111,8 @@ class JavascriptBuild(object):
 
         # declare some usage, session will release it using 'session_released' call
         self.add_ref()
-        return JavascriptSession(self, instance, env, log=log, debug=debug, promise_type=self.promise_type)
+        return JavascriptSession(self, instance, env, log=log, debug=debug,
+                                 cache=cache, promise_type=self.promise_type)
 
     @coroutine
     @validate(method_name="str_name", args="json_dict")

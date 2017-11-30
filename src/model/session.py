@@ -7,7 +7,6 @@ from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated
 from common.access import InternalError
 from common.validate import validate
 from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, process_error
-from expiringdict import ExpiringDict
 
 import datetime
 import sys
@@ -27,10 +26,10 @@ class JavascriptSession(object):
 
     CALL_BLACKLIST = ["release"]
 
-    def __init__(self, build, instance, env, log, debug, promise_type):
+    def __init__(self, build, instance, env, log, debug, cache, promise_type):
         self.build = build
         self.instance = instance
-        self.cache = ExpiringDict(10, 60)
+        self.cache = cache
         self.env = env
 
         self.log = log
