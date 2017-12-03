@@ -350,6 +350,23 @@ class PromoAPI(object):
         raise Return(result)
 
 
+class EventAPI(object):
+
+    @promise
+    def list(self, handler=None):
+        internal = Internal()
+
+        try:
+            events = yield internal.request(
+                "event", "get_list",
+                timeout=API_TIMEOUT,
+                gamespace=handler.env["gamespace"],
+                account=handler.env["account"])
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return(events)
+
 class APIS(object):
     config = ConfigAPI()
     store = StoreAPI()
@@ -358,6 +375,7 @@ class APIS(object):
     message = MessageAPI()
     promo = PromoAPI()
     web = WebAPI()
+    event = EventAPI()
 
 
 def expose(context):
@@ -371,4 +389,6 @@ def expose(context):
         profile=APIS.profile,
         social=APIS.social,
         message=APIS.message,
-        promo=APIS.promo)
+        promo=APIS.promo,
+        event=APIS.event
+    )
