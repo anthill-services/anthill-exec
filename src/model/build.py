@@ -209,10 +209,7 @@ class JavascriptBuild(object):
 
     def remove_ref(self):
         self.refs -= 1
-        if self.refs <= 0:
-            if self._remove_timeout:
-                IOLoop.current().remove_timeout(self._remove_timeout)
-
+        if self.refs <= 0 and (not self._remove_timeout):
             self._remove_timeout = IOLoop.current().add_timeout(
                 datetime.timedelta(seconds=30), self.__remove_callback__)
 
