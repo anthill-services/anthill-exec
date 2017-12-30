@@ -68,7 +68,7 @@ define("cache_max_connections",
 
 # JS
 
-define("source_dir",
+define("js_source_path",
        default="/usr/local/anthill/exec-source",
        help="Directory the source repositories will be pulled into",
        type=str)

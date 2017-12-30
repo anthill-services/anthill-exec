@@ -1,8 +1,8 @@
 
 import tornado.gen
 
-from tornado.gen import Return, sleep
-from tornado.httpclient import HTTPRequest, HTTPError
+from tornado.gen import Return, sleep, Future
+from tornado.httpclient import HTTPRequest, HTTPError, AsyncHTTPClient
 from tornado.simple_httpclient import SimpleAsyncHTTPClient
 
 # noinspection PyUnresolvedReferences
@@ -29,29 +29,56 @@ def log(message):
 class WebAPI(object):
     def __init__(self):
         self.http_client = SimpleAsyncHTTPClient()
+        self.rc_cache = {}
 
     @promise
     def get(self, url, headers=None, *args, **kwargs):
         request = HTTPRequest(url=url, use_gzip=True, headers=headers)
 
+        existing_futures = self.rc_cache.get(url, None)
+
+        if existing_futures is not None:
+            future = Future()
+            existing_futures.append(future)
+            result = yield future
+            raise Return(result)
+
+        new_futures = []
+        self.rc_cache[url] = new_futures
+
         try:
             response = yield self.http_client.fetch(request)
         except HTTPError as e:
-            raise APIError(e.code, e.message)
+            e = APIError(e.code, e.message)
 
-        body = response.body
+            for future in new_futures:
+                future.set_exception(e)
+
+            del self.rc_cache[url]
+            raise e
+        else:
+            body = response.body
+
+            for future in new_futures:
+                future.set_result(body)
+
+            del self.rc_cache[url]
 
         raise Return(body)
 
 
 # noinspection PyUnusedLocal
 class ConfigAPI(object):
-
     @promise
     def get(self, handler=None, *ignored):
 
         app_name = handler.env["application_name"]
         app_version = handler.env["application_version"]
+
+        key = "config:" + str(app_name) + ":" + str(app_version)
+        cached = handler.get_cache(key)
+        if cached:
+            raise Return(cached)
 
         internal = Internal()
 
@@ -65,6 +92,7 @@ class ConfigAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
+        handler.set_cache(key, info)
         raise Return(info)
 
 
@@ -97,7 +125,7 @@ class StoreAPI(object):
         raise Return(config)
 
     @promise
-    def new_order(self, store, item, currency, amount, component, handler=None, *ignored):
+    def new_order(self, store, item, currency, amount, component, env=None, handler=None, *ignored):
 
         internal = Internal()
 
@@ -111,7 +139,8 @@ class StoreAPI(object):
                 item=item,
                 currency=currency,
                 amount=amount,
-                component=component)
+                component=component,
+                env=env)
         except InternalError as e:
             raise APIError(e.code, e.body)
 
@@ -160,11 +189,6 @@ class ProfileAPI(object):
         if not isinstance(path, (unicode, str)):
             raise APIError(400, "Path should be a string")
 
-        key = "profile:" + str(path)
-        cached = handler.get_cache(key)
-        if cached:
-            raise Return(cached)
-
         internal = Internal()
 
         try:
@@ -177,7 +201,6 @@ class ProfileAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        handler.set_cache(key, profile)
         raise Return(profile)
 
     @promise
@@ -350,6 +373,44 @@ class PromoAPI(object):
         raise Return(result)
 
 
+class EventAPI(object):
+    @promise
+    def update_event_profile(self, event_id, profile, path=None, merge=True, handler=None):
+        internal = Internal()
+
+        try:
+            events = yield internal.request(
+                "event", "update_event_profile",
+                event_id=event_id,
+                profile=profile,
+                path=path,
+                merge=merge,
+                timeout=API_TIMEOUT,
+                gamespace=handler.env["gamespace"],
+                account=handler.env["account"])
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return(events)
+
+    @promise
+    def list(self, extra_start_time=0, extra_end_time=0, handler=None):
+        internal = Internal()
+
+        try:
+            events = yield internal.request(
+                "event", "get_list",
+                timeout=API_TIMEOUT,
+                gamespace=handler.env["gamespace"],
+                account=handler.env["account"],
+                extra_start_time=extra_start_time,
+                extra_end_time=extra_end_time)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return(events)
+
+
 class APIS(object):
     config = ConfigAPI()
     store = StoreAPI()
@@ -358,6 +419,7 @@ class APIS(object):
     message = MessageAPI()
     promo = PromoAPI()
     web = WebAPI()
+    event = EventAPI()
 
 
 def expose(context):
@@ -371,4 +433,6 @@ def expose(context):
         profile=APIS.profile,
         social=APIS.social,
         message=APIS.message,
-        promo=APIS.promo)
+        promo=APIS.promo,
+        event=APIS.event
+    )

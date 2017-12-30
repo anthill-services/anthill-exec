@@ -1,5 +1,3 @@
-
-
 from tornado.gen import coroutine, Return, with_timeout, Future, TimeoutError
 # noinspection PyUnresolvedReferences
 from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated
@@ -100,7 +98,6 @@ class JavascriptSession(object):
     @coroutine
     @validate(method_name="str_name", args="json_dict")
     def call(self, method_name, args, call_timeout=10):
-
         if method_name.startswith("_"):
             raise JavascriptSessionError(404, "No such method: " + str(method_name))
 

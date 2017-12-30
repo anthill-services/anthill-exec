@@ -45,11 +45,13 @@ class JavascriptBuild(object):
         self.model = model
         self.context = Context(timeout=0.5)
         self.promise_type = self.context.glob.Promise
+        self.build_cache = ExpiringDict(2048, 60)
 
         # this variable holds amount of users of this build. once this variable hits back to zero,
         # a 30 sec timer will start to release this build
         self.refs = 0
         self._remove_timeout = None
+        self.released = False
 
         try:
             script = Script(source=stdlib.source, filename=stdlib.name)
@@ -95,9 +97,7 @@ class JavascriptBuild(object):
         if not getattr(clazz, "allow_session", False):
             raise NoSuchClass()
 
-        cache = ExpiringDict(10, 60)
-
-        handler = JavascriptCallHandler(cache, env, debug=debug, promise_type=self.promise_type)
+        handler = JavascriptCallHandler(self.build_cache, env, debug=debug, promise_type=self.promise_type)
         if log:
             handler.log = log
         PromiseContext.current = handler
@@ -112,7 +112,7 @@ class JavascriptBuild(object):
         # declare some usage, session will release it using 'session_released' call
         self.add_ref()
         return JavascriptSession(self, instance, env, log=log, debug=debug,
-                                 cache=cache, promise_type=self.promise_type)
+                                 cache=self.build_cache, promise_type=self.promise_type)
 
     @coroutine
     @validate(method_name="str_name", args="json_dict")
@@ -219,6 +219,9 @@ class JavascriptBuild(object):
 
     @coroutine
     def release(self):
+        if self.released:
+            return
+
         if hasattr(self, "context"):
             del self.context
 
@@ -227,6 +230,8 @@ class JavascriptBuild(object):
 
         if self.model:
             yield self.model.build_released(self)
+
+        self.released = True
 
 
 class JavascriptBuildsModel(Model):
@@ -299,7 +304,7 @@ class JavascriptBuildsModel(Model):
         self.builds[build.build_id] = build
 
     def __remove_build__(self, build):
-        self.builds.pop(build.build_id)
+        self.builds.pop(build.build_id, None)
 
     @coroutine
     def build_released(self, build):

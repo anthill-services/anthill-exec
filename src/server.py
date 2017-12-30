@@ -37,7 +37,7 @@ class ExecServer(common.server.Server):
             max_connections=options.cache_max_connections)
 
         self.sources = JavascriptSourcesModel(db)
-        self.builds = JavascriptBuildsModel(options.source_dir, self.sources)
+        self.builds = JavascriptBuildsModel(options.js_source_path, self.sources)
 
         self.env_service = common.environment.EnvironmentClient(self.cache)
 

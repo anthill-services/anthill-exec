@@ -4,7 +4,7 @@ from tornado.web import HTTPError
 from tornado.gen import coroutine, Return
 
 from common.access import scoped, AccessToken
-from common.internal import InternalError
+from common.internal import Internal, InternalError
 from common.validate import validate
 import common.handler
 
@@ -25,6 +25,7 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
     def __init__(self, application, request, **kwargs):
         super(SessionHandler, self).__init__(application, request, **kwargs)
         self.session = None
+        self.internal = Internal()
 
     def required_scopes(self):
         return ["exec_func_call"]
