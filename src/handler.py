@@ -312,26 +312,36 @@ class InternalHandler(object):
         self.application = application
 
     @coroutine
-    @validate(gamespace="int", function_name="str_name", method_name="str_name",
+    @validate(gamespace="int", application_name="str_name", application_version="str", method_name="str_name",
               args="json_dict", env="json_dict", application_name="str_name")
-    def call_function(self, gamespace, function_name, method_name, args, env, application_name=None):
-
-        fcalls = self.application.fcalls
+    def call_function(self, gamespace, application_name, application_version, method_name, args, env):
 
         env["gamespace"] = gamespace
+        env["application_name"] = application_name
+        env["application_version"] = application_version
+
+        builds = self.application.builds
+        sources = self.application.sources
 
         try:
-            result = yield fcalls.call(function_name, args,
-                                       method_name=method_name,
-                                       application_name=application_name,
-                                       **env)
+            source = yield sources.get_build_source(gamespace, application_name, application_version)
+        except SourceCodeError as e:
+            raise InternalError(e.code, e.message)
+        except JavascriptSourceError as e:
+            raise InternalError(e.code, e.message)
+        except NoSuchSourceError:
+            raise InternalError(404, "No source found for {0}/{1}".format(application_name, application_version))
 
+        try:
+            build = yield builds.get_build(source)
+        except JavascriptBuildError as e:
+            raise InternalError(e.code, e.message)
+
+        try:
+            result = yield build.call(method_name, args, **env)
         except JavascriptSessionError as e:
             raise InternalError(e.code, e.message)
         except JavascriptExecutionError as e:
-            if options.debug:
-                logging.error("API Error: " + str(e.traceback))
-                raise InternalError(e.code, str(e.message) + ": " + str(e.traceback))
             raise InternalError(e.code, e.message)
         except Exception as e:
             raise InternalError(500, str(e))
