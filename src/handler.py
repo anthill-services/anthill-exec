@@ -313,7 +313,7 @@ class InternalHandler(object):
 
     @coroutine
     @validate(gamespace="int", application_name="str_name", application_version="str", method_name="str_name",
-              args="json_dict", env="json_dict", application_name="str_name")
+              args="json_dict", env="json_dict")
     def call_function(self, gamespace, application_name, application_version, method_name, args, env):
 
         env["gamespace"] = gamespace
