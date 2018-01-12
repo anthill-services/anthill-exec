@@ -350,3 +350,40 @@ class InternalHandler(object):
             result = str(result)
 
         raise Return(result)
+
+    @coroutine
+    @validate(gamespace="int", method_name="str_name", args="json_dict", env="json_dict")
+    def call_function_default_code(self, gamespace, method_name, args, env):
+
+        env["gamespace"] = gamespace
+
+        builds = self.application.builds
+        sources = self.application.sources
+
+        try:
+            source = yield sources.get_default_source(gamespace)
+        except SourceCodeError as e:
+            raise InternalError(e.code, e.message)
+        except JavascriptSourceError as e:
+            raise InternalError(e.code, e.message)
+        except NoSuchSourceError:
+            raise InternalError(404, "No default source found")
+
+        try:
+            build = yield builds.get_default_build(source)
+        except JavascriptBuildError as e:
+            raise InternalError(e.code, e.message)
+
+        try:
+            result = yield build.call(method_name, args, **env)
+        except JavascriptSessionError as e:
+            raise InternalError(e.code, e.message)
+        except JavascriptExecutionError as e:
+            raise InternalError(e.code, e.message)
+        except Exception as e:
+            raise InternalError(500, str(e))
+
+        if not isinstance(result, (str, dict, list)):
+            result = str(result)
+
+        raise Return(result)
