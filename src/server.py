@@ -54,8 +54,8 @@ class ExecServer(common.server.Server):
             "app": admin.ApplicationController,
             "app_version": admin.ApplicationVersionController,
             "app_settings": admin.ApplicationSettingsController,
-            "default": admin.DefaultCodeController,
-            "default_settings": admin.DefaultCodeSettingsController
+            "server": admin.ServerCodeController,
+            "server_settings": admin.ServerCodeSettingsController
         }
 
     def get_metadata(self):

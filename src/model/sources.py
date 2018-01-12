@@ -25,7 +25,7 @@ class JavascriptSourcesModel(Model, DatabaseSourceCodeRoot):
         return self.db
 
     def get_setup_tables(self):
-        return ["exec_application_settings", "exec_application_versions", "exec_default"]
+        return ["exec_application_settings", "exec_application_versions", "exec_server"]
 
     @coroutine
     @validate(gamespace_id="int", application_name="str", application_version="str")
@@ -43,9 +43,9 @@ class JavascriptSourcesModel(Model, DatabaseSourceCodeRoot):
 
     @coroutine
     @validate(gamespace_id="int")
-    def get_default_source(self, gamespace_id):
+    def get_server_source(self, gamespace_id):
         try:
-            result = yield self.get_default_commit(gamespace_id)
+            result = yield self.get_server_commit(gamespace_id)
         except SourceCodeError as e:
             raise JavascriptSourceError(e.code, e.message)
         except NoSuchSourceError:

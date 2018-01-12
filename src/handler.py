@@ -353,7 +353,7 @@ class InternalHandler(object):
 
     @coroutine
     @validate(gamespace="int", method_name="str_name", args="json_dict", env="json_dict")
-    def call_function_default_code(self, gamespace, method_name, args, env):
+    def call_server_function(self, gamespace, method_name, args, env):
 
         env["gamespace"] = gamespace
 
@@ -361,7 +361,7 @@ class InternalHandler(object):
         sources = self.application.sources
 
         try:
-            source = yield sources.get_default_source(gamespace)
+            source = yield sources.get_server_source(gamespace)
         except SourceCodeError as e:
             raise InternalError(e.code, e.message)
         except JavascriptSourceError as e:
@@ -370,7 +370,7 @@ class InternalHandler(object):
             raise InternalError(404, "No default source found")
 
         try:
-            build = yield builds.get_default_build(source)
+            build = yield builds.get_server_build(source)
         except JavascriptBuildError as e:
             raise InternalError(e.code, e.message)
 

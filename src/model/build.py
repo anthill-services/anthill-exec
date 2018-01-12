@@ -8,7 +8,7 @@ from api import expose
 from common.model import Model
 from common.access import InternalError
 from common.source import SourceCodeRoot, SourceCommitAdapter, SourceProjectAdapter
-from common.source import SourceCodeError, DefaultProjectAdapter
+from common.source import SourceCodeError, ServerCodeAdapter
 from common.validate import validate
 
 from session import JavascriptSession, JavascriptSessionError
@@ -237,7 +237,7 @@ class JavascriptBuild(object):
 
 class JavascriptBuildsModel(Model):
 
-    DEFAULT_PROJECT_NAME = "def"
+    SERVER_PROJECT_NAME = "server"
 
     def __init__(self, root_dir, sources):
         self.sources = sources
@@ -249,23 +249,23 @@ class JavascriptBuildsModel(Model):
         return str(source.name) + "_" + str(source.repository_commit)
 
     @staticmethod
-    def __get_default_build_id__(source):
-        return str(JavascriptBuildsModel.DEFAULT_PROJECT_NAME) + "_" + str(source.repository_commit)
+    def __get_server_build_id__(source):
+        return str(JavascriptBuildsModel.SERVER_PROJECT_NAME) + "_" + str(source.repository_commit)
 
     def validate_repository_url(self, url, ssh_private_key=None):
         return self.root.validate_repository_url(url, ssh_private_key=ssh_private_key)
 
     @coroutine
-    @validate(source=DefaultProjectAdapter)
-    def get_default_build(self, source):
+    @validate(source=ServerCodeAdapter)
+    def get_server_build(self, source):
 
-        build_id = JavascriptBuildsModel.__get_default_build_id__(source)
+        build_id = JavascriptBuildsModel.__get_server_build_id__(source)
         build = self.builds.get(build_id, None)
         if build:
             raise Return(build)
 
         try:
-            project = self.root.project(source.gamespace_id, JavascriptBuildsModel.DEFAULT_PROJECT_NAME,
+            project = self.root.project(source.gamespace_id, JavascriptBuildsModel.SERVER_PROJECT_NAME,
                                         source.repository_url, source.repository_branch,
                                         source.ssh_private_key)
             yield project.init()
@@ -319,11 +319,11 @@ class JavascriptBuildsModel(Model):
         build = JavascriptBuild(None, self, source_build.build_dir)
         raise Return(build)
 
-    @validate(project_settings=DefaultProjectAdapter)
-    def get_default_project(self, project_settings):
+    @validate(project_settings=ServerCodeAdapter)
+    def get_server_project(self, project_settings):
         try:
             project_instance = self.root.project(
-                project_settings.gamespace_id, JavascriptBuildsModel.DEFAULT_PROJECT_NAME,
+                project_settings.gamespace_id, JavascriptBuildsModel.SERVER_PROJECT_NAME,
                 project_settings.repository_url, project_settings.repository_branch,
                 project_settings.ssh_private_key)
         except SourceCodeError as e:

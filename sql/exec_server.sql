@@ -1,4 +1,4 @@
-CREATE TABLE `exec_default` (
+CREATE TABLE `exec_server` (
   `gamespace_id` int(11) unsigned NOT NULL,
   `repository_url` varchar(255) NOT NULL DEFAULT '',
   `repository_branch` varchar(255) NOT NULL DEFAULT 'master',

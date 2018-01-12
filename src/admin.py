@@ -216,14 +216,14 @@ class ApplicationSettingsController(a.AdminController):
         return ["exec_admin"]
 
 
-class DefaultCodeSettingsController(a.AdminController):
+class ServerCodeSettingsController(a.AdminController):
     @coroutine
     def get(self):
 
         sources = self.application.sources
 
         try:
-            project = yield sources.get_default_project(self.gamespace)
+            project = yield sources.get_server_project(self.gamespace)
         except NoSuchProjectError as e:
             repository_url = ""
             ssh_private_key = ""
@@ -252,14 +252,14 @@ class DefaultCodeSettingsController(a.AdminController):
             raise a.ActionError("Error: \"{0}\" is not a valid Git repository URL, or "
                                 "the repository does not exist, or the ssh key is wrong.".format(repository_url))
 
-        yield sources.update_default_project(self.gamespace, repository_url, repository_branch, ssh_private_key)
+        yield sources.update_server_project(self.gamespace, repository_url, repository_branch, ssh_private_key)
 
-        raise a.Redirect("default", message="Default Code settings have been updated.")
+        raise a.Redirect("server", message="Server Code settings have been updated.")
 
     @staticmethod
     def no_settings_notice():
         return a.notice(
-            "Default Code Repository Is Not Configured",
+            "Server Code Repository Is Not Configured",
             """
                 You have not defined your source code repository yet. <br>
                 To deploy your codebase to the Exec service, you must use a Git repository. <br>
@@ -269,16 +269,16 @@ class DefaultCodeSettingsController(a.AdminController):
     def render(self, data):
         r = [
             a.breadcrumbs([
-                a.link("default", "Default Code"),
-            ], "Default Code Settings"),
-            DefaultCodeController.about_notice()
+                a.link("server", "Server Code"),
+            ], "Server Code Settings"),
+            ServerCodeController.about_notice()
         ]
 
         if not data["repository_url"]:
-            r.append(DefaultCodeSettingsController.no_settings_notice())
+            r.append(ServerCodeSettingsController.no_settings_notice())
 
         r.extend([
-            a.form("Default Code Settings", fields={
+            a.form("Server Code Settings", fields={
                 "repository_url": a.field(
                     "Git source code repository url (ssh only)", "text", "primary",
                     description="""
@@ -303,7 +303,7 @@ class DefaultCodeSettingsController(a.AdminController):
                 "update_settings": a.method("Update Settings", "primary")
             }, data=data),
             a.links("Navigate", [
-                a.link("default", "Go back", icon="chevron-left"),
+                a.link("server", "Go back", icon="chevron-left"),
             ])
         ])
 
@@ -629,7 +629,7 @@ class ApplicationVersionController(a.AdminController):
         return ["exec_admin"]
 
 
-class DefaultCodeController(a.AdminController):
+class ServerCodeController(a.AdminController):
 
     @coroutine
     def get(self):
@@ -638,19 +638,19 @@ class DefaultCodeController(a.AdminController):
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_default_project(self.gamespace)
+            project_settings = yield sources.get_server_project(self.gamespace)
         except NoSuchProjectError:
-            raise a.Redirect("default_settings", message="Please define project settings first")
+            raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
-            commit = yield sources.get_default_commit(self.gamespace)
+            commit = yield sources.get_server_commit(self.gamespace)
         except NoSuchSourceError:
             current_commit = None
         else:
             current_commit = commit.repository_commit
 
         try:
-            project = builds.get_default_project(project_settings)
+            project = builds.get_server_project(project_settings)
             yield with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
@@ -673,10 +673,10 @@ class DefaultCodeController(a.AdminController):
     @staticmethod
     def no_commit_notice():
         return a.notice(
-            "The Default Code is disabled",
+            "The Server Code is disabled",
             """
-                The default code is not attached to any commit for the Git repository. <br>
-                Therefore, running source code for the default code is not possible. <br>
+                The server code is not attached to any commit for the Git repository. <br>
+                Therefore, running source code for the server code is not possible. <br>
                 Please attach the version to a commit using either "Update To The Last Commit", 
                 or by clicking "Use This" on a commit of the resent commits history.
             """, style="danger")
@@ -684,11 +684,11 @@ class DefaultCodeController(a.AdminController):
     @staticmethod
     def about_notice():
         return a.notice(
-            "About The Default Code",
+            "About The Server Code",
             """
-                The Default Code is a way to deploy restricted application-independent code to the exec service. <br>
-                Users cannot call the Default Code, but other services can. Therefore, services that have no
-                application context can call functions on exec service with Default Code. <br>
+                The Server Code is a way to deploy restricted application-independent code to the exec service. <br>
+                Users cannot call the Server Code, but other services can. Therefore, services that have no
+                application context can call functions on exec service with Server Code. <br>
                 Please refer to the API for more information.
             """, style="info")
 
@@ -704,12 +704,12 @@ class DefaultCodeController(a.AdminController):
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_default_project(self.gamespace)
+            project_settings = yield sources.get_server_project(self.gamespace)
         except NoSuchProjectError:
-            raise a.Redirect("default_settings", message="Please define project settings first")
+            raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
-            project = builds.get_default_project(project_settings)
+            project = builds.get_server_project(project_settings)
             yield with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
@@ -726,14 +726,14 @@ class DefaultCodeController(a.AdminController):
             raise a.ActionError("Failed to check the latest commit")
 
         try:
-            updated = yield sources.update_default_commit(self.gamespace, latest_commit)
+            updated = yield sources.update_server_commit(self.gamespace, latest_commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
         if updated:
-            raise a.Redirect("default", message="Default Code has been updated")
+            raise a.Redirect("server", message="Server Code has been updated")
 
-        raise a.Redirect("default", message="Already up-to-date.")
+        raise a.Redirect("server", message="Already up-to-date.")
 
     @coroutine
     def detach_version(self):
@@ -741,14 +741,14 @@ class DefaultCodeController(a.AdminController):
         sources = self.application.sources
 
         try:
-            deleted = yield sources.delete_default_commit(self.gamespace)
+            deleted = yield sources.delete_server_commit(self.gamespace)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
         if deleted:
-            raise a.Redirect("default", message="Default code has been disabled")
+            raise a.Redirect("server", message="Server code has been disabled")
 
-        raise a.Redirect("default", message="Default code was already disabled")
+        raise a.Redirect("server", message="Server code was already disabled")
 
     @coroutine
     def pull_updates(self):
@@ -757,12 +757,12 @@ class DefaultCodeController(a.AdminController):
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_default_project(self.gamespace)
+            project_settings = yield sources.get_server_project(self.gamespace)
         except NoSuchProjectError:
-            raise a.Redirect("default_settings", message="Please define project settings first")
+            raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
-            project = builds.get_default_project(project_settings)
+            project = builds.get_server_project(project_settings)
             yield with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
@@ -778,9 +778,7 @@ class DefaultCodeController(a.AdminController):
         if not pulled:
             raise a.ActionError("Failed to pull updates")
 
-        raise a.Redirect(
-            "default",
-            message="Updates has been pulled.")
+        raise a.Redirect("server", message="Updates has been pulled.")
 
     @coroutine
     @validate(commit="str_name")
@@ -790,12 +788,12 @@ class DefaultCodeController(a.AdminController):
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_default_project(self.gamespace)
+            project_settings = yield sources.get_server_project(self.gamespace)
         except NoSuchProjectError as e:
-            raise a.Redirect("default_settings", message="Please define project settings first")
+            raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
-            project = builds.get_default_project(project_settings)
+            project = builds.get_server_project(project_settings)
             yield with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
@@ -812,15 +810,15 @@ class DefaultCodeController(a.AdminController):
             raise a.ActionError("No such commit")
 
         try:
-            yield sources.update_default_commit(self.gamespace, commit)
+            yield sources.update_server_commit(self.gamespace, commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
-        raise a.Redirect("default", message="Default code commit has been updated")
+        raise a.Redirect("server", message="Server code commit has been updated")
 
     def render(self, data):
         r = [
-            a.breadcrumbs([], "Default Code")
+            a.breadcrumbs([], "Server Code")
         ]
         if data["commits_history"] is None:
             r.append(a.notice("Repository is in progress", "Please wait until repository is updated"))
@@ -832,11 +830,11 @@ class DefaultCodeController(a.AdminController):
 
             if data["current_commit"]:
                 methods["detach_version"] = a.method(
-                    "Disable Default Code", "danger", order=3,
-                    danger="Are you sure you would like to disable the default code from launching? After this action, "
-                           "users would not be able to open sessions on the default code.")
+                    "Disable Server Code", "danger", order=3,
+                    danger="Are you sure you would like to disable the Server Code from launching? After this action, "
+                           "services would not be able to call functions on the Server Code.")
             else:
-                r.append(DefaultCodeController.no_commit_notice())
+                r.append(ServerCodeController.no_commit_notice())
 
             r.extend([
                 a.form("Actions", fields={}, methods=methods, data=data),
@@ -872,7 +870,7 @@ class DefaultCodeController(a.AdminController):
                         "actions": [
                             a.status("Current Commit", "success", "check")
                             if data["current_commit"] == commit.hexsha else
-                            a.button("default", "Use This", "primary", _method="switch_commit_context",
+                            a.button("server", "Use This", "primary", _method="switch_commit_context",
                                      commit=str(commit.hexsha))
                         ]
                     }
@@ -881,10 +879,10 @@ class DefaultCodeController(a.AdminController):
             ])
 
         r.extend([
-            DefaultCodeController.about_notice(),
+            ServerCodeController.about_notice(),
             a.links("Navigate", [
                 a.link("index", "Go back", icon="chevron-left"),
-                a.link("default_settings", "Default Code Settings", icon="cogs")
+                a.link("server_settings", "Server Code Settings", icon="cogs")
             ])
         ])
 
@@ -928,7 +926,7 @@ class RootAdminController(a.AdminController):
         return [
             a.links("Exec service", [
                 a.link("apps", "Applications", icon="mobile"),
-                a.link("default", "Default Code", icon="code"),
+                a.link("server", "Server Code", icon="server"),
             ])
         ]
 
