@@ -42,7 +42,7 @@ class FunctionsTestCase(testing.ServerTestCase):
 
         IOLoop.current().set_blocking_log_threshold(0)
 
-        #yield cls.app.started()
+        yield cls.app.started()
 
     @classmethod
     @coroutine
