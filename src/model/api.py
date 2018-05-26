@@ -19,6 +19,12 @@ def sleep(delay, handler=None):
     yield tornado.gen.sleep(delay)
 
 
+# noinspection PyUnusedLocal
+@promise
+def moment(handler=None):
+    yield tornado.gen.moment
+
+
 def log(message):
     handler = PromiseContext.current
     if handler:
@@ -426,6 +432,7 @@ def expose(context):
     context.expose_readonly(
         log=log,
         sleep=sleep,
+        moment=moment,
 
         web=APIS.web,
         config=APIS.config,

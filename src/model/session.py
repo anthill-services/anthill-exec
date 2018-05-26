@@ -4,7 +4,7 @@ from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated
 
 from common.access import InternalError
 from common.validate import validate
-from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, process_error
+from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, JSFuture
 
 import datetime
 import sys
@@ -42,13 +42,15 @@ class JavascriptSession(object):
         if not method:
             return
 
-        handler = JavascriptCallHandler(self.cache, self.env, debug=self.debug, promise_type=self.promise_type)
+        context = self.build.context
+        handler = JavascriptCallHandler(self.cache, self.env, context,
+                                        debug=self.debug, promise_type=self.promise_type)
         if self.log:
             handler.log = self.log
         PromiseContext.current = handler
 
         try:
-            result = method(args)
+            future = context.async(method, (args,), JSFuture)
         except JSException as e:
             value = e.value
             if hasattr(value, "code"):
@@ -68,31 +70,17 @@ class JavascriptSession(object):
         except Exception as e:
             raise JavascriptExecutionError(500, str(e))
 
-        # if the function is defined as 'async', a Promise will be returned
-        if isinstance(result, JSPromise):
-            future = Future()
-
-            def error(e):
-                future.set_exception(process_error(e))
-
-            # connect a promise right into the future
-            try:
-                result.then(future.set_result, error)
-            except Exception as e:
-                pass
-
-            if future.done():
-                raise Return(future.result())
-        else:
-            # immediate result
-            raise Return(result)
+        if future.done():
+            raise Return(future.result())
 
         try:
             result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
         except TimeoutError:
+            future._result = None
             raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                 method_name, call_timeout))
         else:
+            future._result = None
             raise Return(result)
 
     @coroutine
@@ -109,13 +97,16 @@ class JavascriptSession(object):
 
         method = getattr(self.instance, method_name)
 
-        handler = JavascriptCallHandler(self.cache, self.env, debug=self.debug, promise_type=self.promise_type)
+        context = self.build.context
+        handler = JavascriptCallHandler(self.cache, self.env, context,
+                                        debug=self.debug, promise_type=self.promise_type)
         if self.log:
             handler.log = self.log
+
         PromiseContext.current = handler
 
         try:
-            result = method(args, args)
+            future = context.async(method, (args,), JSFuture)
         except JSException as e:
             value = e.value
             if hasattr(value, "code"):
@@ -135,39 +126,24 @@ class JavascriptSession(object):
         except Exception as e:
             raise JavascriptExecutionError(500, str(e))
 
-        # if the function is defined as 'async', a Promise will be returned
-        if isinstance(result, JSPromise):
-            future = Future()
-
-            def error(e):
-                e = process_error(e)
-                future.set_exception(e)
-
-            # connect a promise right into the future
-            try:
-                result.then(future.set_result, error)
-            except Exception as e:
-                pass
-
-            if future.done():
-                raise Return(future.result())
-        else:
-            # immediate result
-            raise Return(result)
+        if future.done():
+            raise Return(future.result())
 
         try:
             result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
         except TimeoutError:
+            future._result = None
             raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                 method_name, call_timeout))
         else:
+            future._result = None
             raise Return(result)
 
     @coroutine
     @validate(value="str")
     def eval(self, value):
 
-        handler = JavascriptCallHandler(self.cache, self.env)
+        handler = JavascriptCallHandler(self.cache, self.env, self.build.context)
         PromiseContext.current = handler
 
         try:

@@ -1,11 +1,12 @@
 
 from tornado.gen import coroutine
 from tornado.ioloop import IOLoop
+from tornado.gen import Future
 
 # noinspection PyUnresolvedReferences
 from v8py import JSFunction, new, JSPromise, JSException, current_context, JavaScriptTerminated
 
-import ujson
+import weakref
 import logging
 import traceback
 
@@ -14,8 +15,9 @@ from common.internal import InternalError
 
 
 class JavascriptCallHandler(object):
-    def __init__(self, cache, env, debug=None, promise_type=None):
+    def __init__(self, cache, env, context, debug=None, promise_type=None):
         self.cache = cache
+        self.context = context
         self.env = env
         self.log = JavascriptCallHandler._default_log
         self.debug = debug
@@ -69,6 +71,11 @@ def process_error(e):
     message = e.message if hasattr(e, "message") else str(e)
 
     return JavascriptExecutionError(code, message, stack=stack)
+
+
+class JSFuture(Future):
+    def set_exception(self, exception):
+        super(JSFuture, self).set_exception(process_error(exception))
 
 
 class APIError(Exception):
@@ -127,6 +134,58 @@ class APIUserError(APIError):
         super(APIUserError, self).__init__(code, message)
 
 
+def promise_completion(f):
+    handler = f.bound.handler()
+
+    if handler is None:
+        return
+
+        # once the future done, set the handler to ours
+    PromiseContext.current = handler
+
+    exception = f.exception()
+    if exception:
+        exception.stack = "".join(traceback.format_tb(f.exc_info()[2]))
+        f.bound_reject(exception)
+    else:
+        f.bound_resolve(f.result())
+
+    # reset it back
+    PromiseContext.current = None
+
+    del f.bound
+    del f.bound_reject
+    del f.bound_resolve
+    del f
+
+
+def promise_callback(bound, resolve, reject):
+
+    handler = bound.handler()
+
+    if handler is None:
+        return
+
+    try:
+        # noinspection PyProtectedMember
+        future = coroutine(bound.method)(*bound.args, handler=handler)
+    except BaseException as exc:
+        exc.stack = traceback.format_exc()
+        reject(exc)
+    else:
+        future.bound = bound
+        future.bound_resolve = resolve
+        future.bound_reject = reject
+        IOLoop.current().add_future(future, promise_completion)
+
+
+class BoundPromise(object):
+    def __init__(self, handler, method, args):
+        self.handler = weakref.ref(handler)
+        self.method = method
+        self.args = args
+
+
 def promise(method):
     """
     This complex decorator allows to wrap coroutine to be used in async/await
@@ -147,32 +206,9 @@ def promise(method):
 
     """
     def wrapper(*args, **kwargs):
-
         # pull a handler from PromiseContext. every javascript call has to set one
         handler = PromiseContext.current
+        context = handler.context
 
-        def promise_callback(resolve, reject):
-
-            def callback(f):
-                # once the future done, reset the handler back to ours
-                PromiseContext.current = handler
-
-                exception = f.exception()
-                if exception:
-                    exception.stack = "".join(traceback.format_tb(f.exc_info()[2]))
-                    reject(exception)
-                else:
-                    resolve(f.result())
-
-            try:
-                # noinspection PyProtectedMember
-                future = coroutine(method)(*args, handler=handler)
-            except BaseException as exc:
-                exc.stack = traceback.format_exc()
-                reject(exc)
-            else:
-                IOLoop.current().add_future(future, callback)
-
-        # return a new Promise
-        return new(handler.promise_type, promise_callback)
+        return new(handler.promise_type, context.bind(promise_callback, BoundPromise(handler, method, args)))
     return wrapper

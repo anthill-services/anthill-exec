@@ -8,10 +8,14 @@ from v8py import JSException, Context, new
 # noinspection PyUnresolvedReferences
 from server import ExecServer
 
+# noinspection PyUnresolvedReferences
 from model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError
+# noinspection PyUnresolvedReferences
 from model.build import NoSuchClass, NoSuchMethod, JavascriptExecutionError
 
+from common.options import default
 import options as _opts
+
 from common import random_string, testing
 import hashlib
 import inspect
@@ -38,7 +42,7 @@ class FunctionsTestCase(testing.ServerTestCase):
 
         IOLoop.current().set_blocking_log_threshold(0)
 
-        yield cls.app.started()
+        #yield cls.app.started()
 
     @classmethod
     @coroutine
@@ -542,52 +546,6 @@ class FunctionsTestCase(testing.ServerTestCase):
 
         self.assertEqual(res, [3, 300, 0, 300000])
 
-    @gen_test(timeout=1.5)
-    def test_timeout(self):
-        """
-        This function ensures that infinite loops can be caught by timeout
-        """
-
-        build = JavascriptBuild()
-
-        build.add_source("""
-            function main(args)
-            {
-                while(true);
-            }
-            
-            main.allow_call = true;
-        """)
-
-        with self.assertRaises(JavascriptExecutionError) as error:
-            yield build.call("main", {})
-
-        self.assertEqual(error.exception.code, 408)
-
-    @gen_test(timeout=1)
-    def test_timeout_in_callback(self):
-        """
-        This function ensures that infinite loops inside the callbacks also can be caught by timeout
-        """
-
-        build = JavascriptBuild()
-
-        build.add_source("""
-            async function main(args)
-            {
-                await sleep(0.1)
-                
-                while(true);
-            }
-
-            main.allow_call = true;
-        """)
-
-        with self.assertRaises(JavascriptExecutionError) as error:
-            yield build.call("main", {})
-
-        self.assertEqual(error.exception.code, 408)
-
     @gen_test(timeout=1)
     def test_parallel_api(self):
         build = JavascriptBuild()
@@ -597,7 +555,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             {
                 var sleep1 = sleep(0.25);
                 var sleep2 = sleep(0.5);
-                
+
                 await Promise.all([sleep1, sleep2])
             }
 
@@ -605,3 +563,22 @@ class FunctionsTestCase(testing.ServerTestCase):
         """)
 
         yield build.call("main", {})
+
+    @gen_test(timeout=5)
+    def test_autorelease(self):
+
+        build = JavascriptBuild(autorelease_time=1000)
+
+        build.add_source("""
+            function main(args)
+            {
+                return 1;
+            }
+
+            main.allow_call = true;
+        """)
+
+        yield build.call("main", {})
+        yield sleep(1.5)
+
+        self.assertTrue(build.released)
