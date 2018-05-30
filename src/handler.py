@@ -3,7 +3,7 @@ import common.access
 from tornado.web import HTTPError
 from tornado.gen import coroutine, Return
 
-from common.access import scoped, AccessToken
+from common.access import internal, scoped, AccessToken
 from common.internal import Internal, InternalError
 from common.validate import validate
 import common.handler
@@ -300,6 +300,65 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
             raise HTTPError(e.code, e.message)
         except Exception as e:
             raise HTTPError(500, str(e))
+
+        if not isinstance(result, (str, dict, list)):
+            result = str(result)
+
+        self.dumps(result)
+
+
+class CallServerActionHandler(common.handler.AuthenticatedHandler):
+    @coroutine
+    @internal
+    def post(self, gamespace_name, method_name):
+
+        builds = self.application.builds
+        sources = self.application.sources
+
+        try:
+            gamespace_info = yield Internal().send_request("login", "get_gamespace", name=gamespace_name)
+        except InternalError as e:
+            raise HTTPError(e.code, e.message)
+
+        try:
+            gamespace_id = gamespace_info["id"]
+        except KeyError as e:
+            raise HTTPError(500, "Failed to retrieve gamespace ID: " + str(e))
+
+        try:
+            source = yield sources.get_server_source(gamespace_id)
+        except SourceCodeError as e:
+            raise HTTPError(e.code, e.message)
+        except JavascriptSourceError as e:
+            raise HTTPError(e.code, e.message)
+        except NoSuchSourceError:
+            raise HTTPError(404, "No server source found for gamespace {0}".format(gamespace_name))
+
+        try:
+            build = yield builds.get_server_build(source)
+        except JavascriptBuildError as e:
+            raise HTTPError(e.code, e.message)
+
+        try:
+            args = ujson.loads(self.get_argument("args", "{}"))
+        except (KeyError, ValueError):
+            raise HTTPError(400, "Corrupted args, expected to be a dict or list.")
+
+        try:
+            env = ujson.loads(self.get_argument("env", "{}"))
+        except (KeyError, ValueError):
+            raise HTTPError(400, "Corrupted env, expected to be a dict.")
+
+        env["gamespace"] = gamespace_id
+
+        try:
+            result = yield build.call(method_name, args, **env)
+        except JavascriptSessionError as e:
+            raise InternalError(e.code, e.message)
+        except JavascriptExecutionError as e:
+            raise InternalError(e.code, e.message)
+        except Exception as e:
+            raise InternalError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)

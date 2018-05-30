@@ -8,6 +8,8 @@ from tornado.simple_httpclient import SimpleAsyncHTTPClient
 # noinspection PyUnresolvedReferences
 import options as _opts
 from common.internal import Internal, InternalError
+from common.validate import validate_value
+from common.server import Server
 from util import promise, PromiseContext, APIError
 
 API_TIMEOUT = 5
@@ -29,6 +31,20 @@ def log(message):
     handler = PromiseContext.current
     if handler:
         handler.log(message)
+
+
+class AdminAPI(object):
+    @promise
+    def delete_accounts(self, accounts, gamespace_only=True, handler=None, *args, **kwargs):
+        application = Server.instance()
+
+        publisher = yield application.acquire_publisher()
+
+        yield publisher.publish("DEL", {
+            "gamespace": handler.env["gamespace"],
+            "accounts": accounts,
+            "gamespace_only": gamespace_only
+        })
 
 
 # noinspection PyUnusedLocal
@@ -236,6 +252,26 @@ class ProfileAPI(object):
         handler.set_cache(key, profile)
         raise Return(profile)
 
+    @promise
+    def query(self, query, limit=1000, handler=None, *ignored):
+
+        if not validate_value(query, "json_dict"):
+            raise APIError(400, "Query should be a JSON object")
+
+        internal = Internal()
+
+        try:
+            results = yield internal.request(
+                "profile", "query_profiles",
+                timeout=API_TIMEOUT,
+                gamespace_id=handler.env["gamespace"],
+                query=query,
+                limit=limit)
+        except InternalError as e:
+            raise APIError(e.code, e.body)
+
+        raise Return(results)
+
 
 # noinspection PyUnusedLocal
 class SocialAPI(object):
@@ -426,20 +462,28 @@ class APIS(object):
     promo = PromoAPI()
     web = WebAPI()
     event = EventAPI()
+    admin = AdminAPI()
 
 
-def expose(context):
-    context.expose_readonly(
-        log=log,
-        sleep=sleep,
-        moment=moment,
+def expose(context, is_server=False):
 
-        web=APIS.web,
-        config=APIS.config,
-        store=APIS.store,
-        profile=APIS.profile,
-        social=APIS.social,
-        message=APIS.message,
-        promo=APIS.promo,
-        event=APIS.event
-    )
+    expose_objects = {
+        "log": log,
+        "sleep": sleep,
+        "moment": moment,
+        "web": APIS.web,
+        "config": APIS.config,
+        "store": APIS.store,
+        "profile": APIS.profile,
+        "social": APIS.social,
+        "message": APIS.message,
+        "promo": APIS.promo,
+        "event": APIS.event
+    }
+
+    if is_server:
+        expose_objects.update({
+            "admin": APIS.admin
+        })
+
+    context.expose_readonly(**expose_objects)

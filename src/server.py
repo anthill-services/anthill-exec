@@ -67,6 +67,7 @@ class ExecServer(common.server.Server):
 
     def get_handlers(self):
         return [
+            (r"/server/(\w+)/(\w+)", handler.CallServerActionHandler),
             (r"/call/(\w+)/(.*)/(\w+)", handler.CallActionHandler),
             (r"/session/(\w+)/(.*)/(\w+)", handler.SessionHandler),
             (r"/debug/(\w+)/(.*)/(\w+)", handler.SessionDebugHandler)

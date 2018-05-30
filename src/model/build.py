@@ -42,7 +42,7 @@ class NoSuchClass(Exception):
 
 
 class JavascriptBuild(object):
-    def __init__(self, build_id=None, model=None, source_path=None, autorelease_time=30000):
+    def __init__(self, build_id=None, model=None, source_path=None, autorelease_time=30000, is_server=False):
         self.build_id = build_id
         self.model = model
         self.context = Context()
@@ -77,7 +77,7 @@ class JavascriptBuild(object):
                     logging.exception("Error while compiling")
                     raise JavascriptBuildError(500, str(e))
 
-        expose(self.context)
+        expose(self.context, is_server=is_server)
         if self.build_id:
             logging.info("Created new build {0}".format(self.build_id))
 
@@ -265,7 +265,7 @@ class JavascriptBuildsModel(Model):
         except SourceCodeError as e:
             raise JavascriptBuildError(e.code, e.message)
 
-        build = JavascriptBuild(build_id, self, source_build.build_dir)
+        build = JavascriptBuild(build_id, self, source_build.build_dir, is_server=True)
         self.builds[build_id] = build
         raise Return(build)
 
