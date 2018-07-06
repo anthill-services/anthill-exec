@@ -6,10 +6,11 @@ from tornado.gen import coroutine, Return
 from common.access import internal, scoped, AccessToken
 from common.internal import Internal, InternalError
 from common.validate import validate
+from common.login import LoginClient, LoginClientError
 import common.handler
 
 from model.util import JavascriptExecutionError
-from model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError
+from model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError, NoSuchClass, NoSuchMethod
 from model.sources import SourceCodeError, NoSuchSourceError, JavascriptSourceError
 from common.jsonrpc import JsonRPCError
 
@@ -85,6 +86,8 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
                 self.finish()
                 return
             raise HTTPError(e.code, e.message)
+        except NoSuchClass:
+            raise HTTPError(404, "No such class")
         except Exception as e:
             logging.exception("Failed during session initialization")
             raise HTTPError(500, str(e))
@@ -298,6 +301,8 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
                 self.finish()
                 return
             raise HTTPError(e.code, e.message)
+        except NoSuchMethod:
+            raise HTTPError(404, "No such method")
         except Exception as e:
             raise HTTPError(500, str(e))
 
@@ -315,15 +320,14 @@ class CallServerActionHandler(common.handler.AuthenticatedHandler):
         builds = self.application.builds
         sources = self.application.sources
 
-        try:
-            gamespace_info = yield Internal().send_request("login", "get_gamespace", name=gamespace_name)
-        except InternalError as e:
-            raise HTTPError(e.code, e.message)
+        login_client = LoginClient(self.application.cache)
 
         try:
-            gamespace_id = gamespace_info["id"]
-        except KeyError as e:
-            raise HTTPError(500, "Failed to retrieve gamespace ID: " + str(e))
+            gamespace_info = yield login_client.find_gamespace(gamespace_name)
+        except LoginClientError as e:
+            raise HTTPError(e.code, e.message)
+
+        gamespace_id = gamespace_info.gamespace_id
 
         try:
             source = yield sources.get_server_source(gamespace_id)
@@ -354,11 +358,13 @@ class CallServerActionHandler(common.handler.AuthenticatedHandler):
         try:
             result = yield build.call(method_name, args, **env)
         except JavascriptSessionError as e:
-            raise InternalError(e.code, e.message)
+            raise HTTPError(e.code, e.message)
         except JavascriptExecutionError as e:
-            raise InternalError(e.code, e.message)
+            raise HTTPError(e.code, e.message)
+        except NoSuchMethod:
+            raise HTTPError(404, "No such method")
         except Exception as e:
-            raise InternalError(500, str(e))
+            raise HTTPError(500, str(e))
 
         if not isinstance(result, (str, dict, list)):
             result = str(result)

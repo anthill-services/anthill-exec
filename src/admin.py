@@ -10,7 +10,7 @@ from model.sources import NoSuchSourceError, SourceCodeError, JavascriptSourceEr
 from model.build import JavascriptBuildError, NoSuchClass, NoSuchMethod
 from model.session import APIError, JavascriptSessionError
 
-from common.environment import AppNotFound
+from common.environment import EnvironmentClient, AppNotFound
 from common.access import AccessToken
 from common.internal import Internal, InternalError
 from common.validate import validate
@@ -30,11 +30,11 @@ class ApplicationController(a.AdminController):
     @validate(app_id="str")
     def get(self, app_id):
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
 
         try:
-            app = yield env_service.get_app_info(app_id)
+            app = yield environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -52,9 +52,9 @@ class ApplicationController(a.AdminController):
 
         result = {
             "app_id": app_id,
-            "app_record_id": app["id"],
-            "app_name": app["title"],
-            "versions": app["versions"],
+            "app_record_id": app.id,
+            "app_name": app.title,
+            "versions": app.versions,
             "commits": commits,
             "has_no_settings": has_no_settings
         }
@@ -104,11 +104,11 @@ class ApplicationSettingsController(a.AdminController):
     @validate(app_id="str")
     def get(self, app_id):
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
 
         try:
-            app = yield env_service.get_app_info(app_id)
+            app = yield environment_client.get_app_info(app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
@@ -125,8 +125,8 @@ class ApplicationSettingsController(a.AdminController):
 
         result = {
             "app_id": app_id,
-            "app_record_id": app["id"],
-            "app_name": app["title"],
+            "app_record_id": app.id,
+            "app_name": app.title,
             "repository_url": repository_url,
             "repository_branch": repository_branch,
             "ssh_private_key": ssh_private_key
@@ -140,12 +140,12 @@ class ApplicationSettingsController(a.AdminController):
 
         app_id = self.context.get("app_id")
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(app_id)
+            yield environment_client.get_app_info(app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
@@ -318,12 +318,12 @@ class ApplicationVersionController(a.AdminController):
     @validate(app_id="str", app_version="str")
     def get(self, app_id, app_version):
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            app = yield env_service.get_app_info(app_id)
+            app = yield environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -355,9 +355,9 @@ class ApplicationVersionController(a.AdminController):
 
         result = {
             "app_id": app_id,
-            "app_record_id": app["id"],
-            "app_name": app["title"],
-            "versions": app["versions"],
+            "app_record_id": app.id,
+            "app_name": app.title,
+            "versions": app.versions,
             "current_commit": current_commit,
             "commits_history": commits_history
         }
@@ -386,12 +386,12 @@ class ApplicationVersionController(a.AdminController):
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(app_id)
+            yield environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -439,12 +439,12 @@ class ApplicationVersionController(a.AdminController):
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(app_id)
+            yield environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -470,12 +470,12 @@ class ApplicationVersionController(a.AdminController):
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(app_id)
+            yield environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -513,12 +513,12 @@ class ApplicationVersionController(a.AdminController):
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
 
-        env_service = self.application.env_service
+        environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            yield env_service.get_app_info(app_id)
+            yield environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
@@ -895,8 +895,8 @@ class ServerCodeController(a.AdminController):
 class ApplicationsController(a.AdminController):
     @coroutine
     def get(self):
-        env_service = self.application.env_service
-        apps = yield env_service.list_apps()
+        environment_client = EnvironmentClient(self.application.cache)
+        apps = yield environment_client.list_apps()
 
         result = {
             "apps": apps

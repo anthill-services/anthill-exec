@@ -39,8 +39,6 @@ class ExecServer(common.server.Server):
         self.sources = JavascriptSourcesModel(db)
         self.builds = JavascriptBuildsModel(options.js_source_path, self.sources)
 
-        self.env_service = common.environment.EnvironmentClient(self.cache)
-
     def get_models(self):
         return [self.sources, self.builds]
 
