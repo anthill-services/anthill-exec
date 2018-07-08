@@ -1,4 +1,5 @@
 from tornado.gen import coroutine, Return, sleep
+from tornado.ioloop import IOLoop
 from tornado.httpclient import HTTPError
 from tornado.testing import gen_test
 
@@ -181,6 +182,7 @@ class ExecAcceptanceTestCase(AcceptanceTestCase):
     @classmethod
     @coroutine
     def co_setup_acceptance_tests(cls):
+        IOLoop.current().set_blocking_log_threshold(0)
         yield cls.setup_repo()
         yield cls.setup_server_repo()
 

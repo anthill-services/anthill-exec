@@ -31,23 +31,12 @@ def is_debugging():
 
 class FunctionsTestCase(testing.ServerTestCase):
     @classmethod
-    @coroutine
-    def co_setup_class(cls):
-        cls.db = yield cls.get_test_db()
-
-        cls.app = ExecServer(cls.db)
-
-        cls.builds = cls.app.builds
-        cls.sources = cls.app.sources
-
-        IOLoop.current().set_blocking_log_threshold(0)
-
-        yield cls.app.started()
+    def need_test_db(cls):
+        return True
 
     @classmethod
-    @coroutine
-    def co_tear_down_class(cls):
-        cls.app.shutdown()
+    def get_server_instance(cls, db=None):
+        return ExecServer(db)
 
     @coroutine
     def check_build(self, build, name, checks):
