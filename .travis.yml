@@ -4,8 +4,9 @@ python:
 virtualenv:
     system_site_package: true
 env:
-  - PYTHONPATH=$PYTHONPATH:$TRAVIS_BUILD_DIR/src:$TRAVIS_BUILD_DIR/common/src
-  - js_source_path=$TRAVIS_BUILD_DIR/js_build
+  global:
+    - PYTHONPATH=$PYTHONPATH:$TRAVIS_BUILD_DIR/src:$TRAVIS_BUILD_DIR/common/src
+    - js_source_path=$TRAVIS_BUILD_DIR/js_build
 addons:
   apt:
     sources:
