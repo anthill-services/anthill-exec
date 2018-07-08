@@ -26,7 +26,7 @@ install:
   - git clone https://github.com/anthill-platform/anthill-common $TRAVIS_BUILD_DIR/common
   - pip install -r $TRAVIS_BUILD_DIR/common/src/requirements.txt
   - pip install -r src/requirements.txt
-  - git clone https://github.com/anthill-utils/v8py.git $TRAVIS_BUILD_DIR/v8py
+  - if [ ! -d "$TRAVIS_BUILD_DIR/v8py" ] ; then git clone https://github.com/anthill-utils/v8py.git "$TRAVIS_BUILD_DIR/v8py" ; fi
   - python $TRAVIS_BUILD_DIR/v8py/setup.py install
 script:
   - python -m unittest discover
