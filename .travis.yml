@@ -6,7 +6,6 @@ virtualenv:
 env:
   global:
     - PYTHONPATH=$PYTHONPATH:$TRAVIS_BUILD_DIR/src:$TRAVIS_BUILD_DIR/common/src
-    - js_source_path=$TRAVIS_BUILD_DIR/js_build
 addons:
   apt:
     sources:
@@ -28,7 +27,7 @@ install:
   - git clone https://github.com/anthill-platform/anthill-common $TRAVIS_BUILD_DIR/common
   - pip install -r $TRAVIS_BUILD_DIR/common/src/requirements.txt
   - pip install -r src/requirements.txt
-  - if [ ! -d "$TRAVIS_BUILD_DIR/v8py" ] ; then git clone https://github.com/anthill-utils/v8py.git "$TRAVIS_BUILD_DIR/v8py" ; fi
+  - git clone https://github.com/anthill-utils/v8py.git "$TRAVIS_BUILD_DIR/v8py" || true
   - python $TRAVIS_BUILD_DIR/v8py/setup.py install
 script:
-  - python -m unittest discover
+  - python -m common.testing --js_source_path="$TRAVIS_BUILD_DIR/js_build"
