@@ -1,28 +1,25 @@
-import common.access
 
 from tornado.web import HTTPError
-from tornado.gen import coroutine, Return
 
-from common.access import internal, scoped, AccessToken
-from common.internal import Internal, InternalError
-from common.validate import validate
-from common.login import LoginClient, LoginClientError
-import common.handler
+from anthill.common import handler, ElapsedTime
+from anthill.common.access import internal, scoped, AccessToken
+from anthill.common.internal import Internal, InternalError
+from anthill.common.validate import validate
+from anthill.common.login import LoginClient, LoginClientError
+from anthill.common.jsonrpc import JsonRPCError
 
-from model.util import JavascriptExecutionError
-from model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError, NoSuchClass, NoSuchMethod
-from model.sources import SourceCodeError, NoSuchSourceError, JavascriptSourceError
-from common.jsonrpc import JsonRPCError
+from . model.util import JavascriptExecutionError
+from . model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError, NoSuchClass, NoSuchMethod
+from . model.sources import SourceCodeError, NoSuchSourceError, JavascriptSourceError
 
 import ujson
 import logging
-import traceback
 
-from common.options import options
-import options as _opts
+from anthill.common.options import options
+from . import options as _opts
 
 
-class SessionHandler(common.handler.JsonRPCWSHandler):
+class SessionHandler(handler.JsonRPCWSHandler):
     def __init__(self, application, request, **kwargs):
         super(SessionHandler, self).__init__(application, request, **kwargs)
         self.session = None
@@ -34,9 +31,8 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
     def check_origin(self, origin):
         return True
 
-    @coroutine
-    def prepared(self, application_name, application_version, class_name):
-        yield super(SessionHandler, self).prepared(application_name, application_version, class_name)
+    async def prepared(self, application_name, application_version, class_name):
+        await super(SessionHandler, self).prepared(application_name, application_version, class_name)
 
         sources = self.application.sources
 
@@ -51,7 +47,7 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
             raise HTTPError(400, "Corrupted argument 'session_args'")
 
         try:
-            source = yield sources.get_build_source(gamespace_id, application_name, application_version)
+            source = await sources.get_build_source(gamespace_id, application_name, application_version)
         except SourceCodeError as e:
             raise HTTPError(e.code, e.message)
         except JavascriptSourceError as e:
@@ -62,7 +58,7 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
         builds = self.application.builds
 
         try:
-            build = yield builds.get_build(source)
+            build = await builds.get_build(source)
         except JavascriptBuildError as e:
             raise HTTPError(e.code, e.message)
 
@@ -92,15 +88,14 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
             logging.exception("Failed during session initialization")
             raise HTTPError(500, str(e))
 
-    @coroutine
-    def call(self, method_name, arguments):
+    async def call(self, method_name, arguments):
 
         logging.info("Calling method {0}: {1}".format(
             method_name, str(arguments)
         ))
 
         try:
-            result = yield self.session.call(method_name, arguments)
+            result = await self.session.call(method_name, arguments)
         except JavascriptSessionError as e:
             raise JsonRPCError(e.code, e.message)
         except JavascriptExecutionError as e:
@@ -113,16 +108,15 @@ class SessionHandler(common.handler.JsonRPCWSHandler):
         if not isinstance(result, (str, dict, list)):
             result = str(result)
 
-        raise Return(result)
+        return result
 
-    @coroutine
-    def on_closed(self):
+    async def on_closed(self):
         if self.session:
-            yield self.session.release(self.close_code, self.close_reason)
+            await self.session.release(self.close_code, self.close_reason)
             self.session = None
 
 
-class SessionDebugHandler(common.handler.JsonRPCWSHandler):
+class SessionDebugHandler(handler.JsonRPCWSHandler):
     def __init__(self, application, request, **kwargs):
         super(SessionDebugHandler, self).__init__(application, request, **kwargs)
         self.build = JavascriptBuild()
@@ -139,9 +133,8 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
     def check_origin(self, origin):
         return True
 
-    @coroutine
-    def prepared(self, application_name, application_version, class_name):
-        yield super(SessionDebugHandler, self).prepared(application_name, application_version, class_name)
+    async def prepared(self, application_name, application_version, class_name):
+        await super(SessionDebugHandler, self).prepared(application_name, application_version, class_name)
         self.class_name = class_name
 
         try:
@@ -156,8 +149,7 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
         logging.info(message)
         self.send_rpc(self, "log", message=message)
 
-    @coroutine
-    def start(self):
+    async def start(self):
         if self.session:
             raise JsonRPCError(409, "Session has been initialized already.")
 
@@ -191,13 +183,12 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
             logging.exception("Failed during session initialization")
             raise JsonRPCError(500, str(e))
 
-    @coroutine
     @validate(text="str")
-    def eval(self, text):
-        time = common.ElapsedTime("Evaluating: {0}".format(text))
+    async def eval(self, text):
+        time = ElapsedTime("Evaluating: {0}".format(text))
 
         try:
-            result = yield self.session.eval(text)
+            result = await self.session.eval(text)
         except JavascriptSessionError as e:
             raise JsonRPCError(404, str(e))
         except Exception as e:
@@ -205,13 +196,12 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
         finally:
             logging.info(time.done())
 
-        raise Return({
+        return {
             "result": result
-        })
+        }
 
-    @coroutine
     @validate(filename="str_name", contents="str")
-    def upload(self, filename, contents):
+    async def upload(self, filename, contents):
         if self.session:
             raise JsonRPCError(409, "Session has been initialized already.")
 
@@ -220,8 +210,7 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
         except JavascriptBuildError as e:
             raise JsonRPCError(e.code, e.message)
 
-    @coroutine
-    def call(self, method_name, arguments):
+    async def call(self, method_name, arguments):
 
         if not self.session:
             raise JsonRPCError(405, "Session has not been initialized yet.")
@@ -231,7 +220,7 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
         ))
 
         try:
-            result = yield self.session.call(method_name, arguments)
+            result = await self.session.call(method_name, arguments)
         except JavascriptSessionError as e:
             raise JsonRPCError(e.code, e.message)
         except JavascriptExecutionError as e:
@@ -244,19 +233,17 @@ class SessionDebugHandler(common.handler.JsonRPCWSHandler):
         if not isinstance(result, (str, dict, list)):
             result = str(result)
 
-        raise Return(result)
+        return result
 
-    @coroutine
-    def on_closed(self):
+    async def on_closed(self):
         if self.session:
-            yield self.session.release(self.close_code, self.close_reason)
+            await self.session.release(self.close_code, self.close_reason)
             self.session = None
 
 
-class CallActionHandler(common.handler.AuthenticatedHandler):
-    @coroutine
+class CallActionHandler(handler.AuthenticatedHandler):
     @scoped(scopes=["exec_func_call"])
-    def post(self, application_name, application_version, method_name):
+    async def post(self, application_name, application_version, method_name):
 
         builds = self.application.builds
         sources = self.application.sources
@@ -265,7 +252,7 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
         account_id = self.token.account
 
         try:
-            source = yield sources.get_build_source(gamespace_id, application_name, application_version)
+            source = await sources.get_build_source(gamespace_id, application_name, application_version)
         except SourceCodeError as e:
             raise HTTPError(e.code, e.message)
         except JavascriptSourceError as e:
@@ -274,7 +261,7 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
             raise HTTPError(404, "No source found for {0}/{1}".format(application_name, application_version))
 
         try:
-            build = yield builds.get_build(source)
+            build = await builds.get_build(source)
         except JavascriptBuildError as e:
             raise HTTPError(e.code, e.message)
 
@@ -284,7 +271,7 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
             raise HTTPError(400, "Corrupted args, expected to be a dict or list.")
 
         try:
-            result = yield build.call(
+            result = await build.call(
                 method_name, args,
                 application_name=application_name,
                 application_version=application_version,
@@ -312,10 +299,9 @@ class CallActionHandler(common.handler.AuthenticatedHandler):
         self.dumps(result)
 
 
-class CallServerActionHandler(common.handler.AuthenticatedHandler):
-    @coroutine
+class CallServerActionHandler(handler.AuthenticatedHandler):
     @internal
-    def post(self, gamespace_name, method_name):
+    async def post(self, gamespace_name, method_name):
 
         builds = self.application.builds
         sources = self.application.sources
@@ -323,14 +309,14 @@ class CallServerActionHandler(common.handler.AuthenticatedHandler):
         login_client = LoginClient(self.application.cache)
 
         try:
-            gamespace_info = yield login_client.find_gamespace(gamespace_name)
+            gamespace_info = await login_client.find_gamespace(gamespace_name)
         except LoginClientError as e:
             raise HTTPError(e.code, e.message)
 
         gamespace_id = gamespace_info.gamespace_id
 
         try:
-            source = yield sources.get_server_source(gamespace_id)
+            source = await sources.get_server_source(gamespace_id)
         except SourceCodeError as e:
             raise HTTPError(e.code, e.message)
         except JavascriptSourceError as e:
@@ -339,7 +325,7 @@ class CallServerActionHandler(common.handler.AuthenticatedHandler):
             raise HTTPError(404, "No server source found for gamespace {0}".format(gamespace_name))
 
         try:
-            build = yield builds.get_server_build(source)
+            build = await builds.get_server_build(source)
         except JavascriptBuildError as e:
             raise HTTPError(e.code, e.message)
 
@@ -356,7 +342,7 @@ class CallServerActionHandler(common.handler.AuthenticatedHandler):
         env["gamespace"] = gamespace_id
 
         try:
-            result = yield build.call(method_name, args, **env)
+            result = await build.call(method_name, args, **env)
         except JavascriptSessionError as e:
             raise HTTPError(e.code, e.message)
         except JavascriptExecutionError as e:
@@ -376,10 +362,9 @@ class InternalHandler(object):
     def __init__(self, application):
         self.application = application
 
-    @coroutine
     @validate(gamespace="int", application_name="str_name", application_version="str", method_name="str_name",
               args="json_dict", env="json_dict")
-    def call_function(self, gamespace, application_name, application_version, method_name, args, env):
+    async def call_function(self, gamespace, application_name, application_version, method_name, args, env):
 
         env["gamespace"] = gamespace
         env["application_name"] = application_name
@@ -389,7 +374,7 @@ class InternalHandler(object):
         sources = self.application.sources
 
         try:
-            source = yield sources.get_build_source(gamespace, application_name, application_version)
+            source = await sources.get_build_source(gamespace, application_name, application_version)
         except SourceCodeError as e:
             raise InternalError(e.code, e.message)
         except JavascriptSourceError as e:
@@ -398,12 +383,12 @@ class InternalHandler(object):
             raise InternalError(404, "No source found for {0}/{1}".format(application_name, application_version))
 
         try:
-            build = yield builds.get_build(source)
+            build = await builds.get_build(source)
         except JavascriptBuildError as e:
             raise InternalError(e.code, e.message)
 
         try:
-            result = yield build.call(method_name, args, **env)
+            result = await build.call(method_name, args, **env)
         except JavascriptSessionError as e:
             raise InternalError(e.code, e.message)
         except JavascriptExecutionError as e:
@@ -414,11 +399,10 @@ class InternalHandler(object):
         if not isinstance(result, (str, dict, list)):
             result = str(result)
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace="int", method_name="str_name", args="json_dict", env="json_dict")
-    def call_server_function(self, gamespace, method_name, args, env):
+    async def call_server_function(self, gamespace, method_name, args, env):
 
         env["gamespace"] = gamespace
 
@@ -426,7 +410,7 @@ class InternalHandler(object):
         sources = self.application.sources
 
         try:
-            source = yield sources.get_server_source(gamespace)
+            source = await sources.get_server_source(gamespace)
         except SourceCodeError as e:
             raise InternalError(e.code, e.message)
         except JavascriptSourceError as e:
@@ -435,12 +419,12 @@ class InternalHandler(object):
             raise InternalError(404, "No default source found")
 
         try:
-            build = yield builds.get_server_build(source)
+            build = await builds.get_server_build(source)
         except JavascriptBuildError as e:
             raise InternalError(e.code, e.message)
 
         try:
-            result = yield build.call(method_name, args, **env)
+            result = await build.call(method_name, args, **env)
         except JavascriptSessionError as e:
             raise InternalError(e.code, e.message)
         except JavascriptExecutionError as e:
@@ -451,4 +435,4 @@ class InternalHandler(object):
         if not isinstance(result, (str, dict, list)):
             result = str(result)
 
-        raise Return(result)
+        return result

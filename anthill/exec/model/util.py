@@ -10,8 +10,8 @@ import weakref
 import logging
 import traceback
 
-from common.options import options
-from common.internal import InternalError
+from anthill.common.options import options
+from anthill.common.internal import InternalError
 
 
 class JavascriptCallHandler(object):
@@ -193,9 +193,9 @@ def promise(method):
     Use it instead of @coroutine to call a method asynchronously from JS:
 
     @promise
-    def sum(a, b):
-        yield sleep(1)
-        raise Return(a + b)
+    async def sum(a, b):
+        await sleep(1)
+        return a + b
 
     When called from JS, a Primise object is returned:
 

@@ -1,10 +1,10 @@
-from tornado.gen import coroutine, Return, with_timeout, Future, TimeoutError
+from tornado.gen import with_timeout, TimeoutError
 # noinspection PyUnresolvedReferences
 from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated
 
-from common.access import InternalError
-from common.validate import validate
-from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, JSFuture
+from anthill.common.access import InternalError
+from anthill.common.validate import validate
+from . util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, JSFuture
 
 import datetime
 import sys
@@ -34,8 +34,7 @@ class JavascriptSession(object):
         self.debug = debug
         self.promise_type = promise_type
 
-    @coroutine
-    def call_internal_method(self, method_name, args, call_timeout=10):
+    async def call_internal_method(self, method_name, args, call_timeout=10):
 
         method = getattr(self.instance, method_name, None)
 
@@ -50,7 +49,7 @@ class JavascriptSession(object):
         PromiseContext.current = handler
 
         try:
-            future = context.async(method, (args,), JSFuture)
+            future = context.async_call(method, (args,), JSFuture)
         except JSException as e:
             value = e.value
             if hasattr(value, "code"):
@@ -71,21 +70,18 @@ class JavascriptSession(object):
             raise JavascriptExecutionError(500, str(e))
 
         if future.done():
-            raise Return(future.result())
+            return future.result()
 
         try:
-            result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
+            result = await with_timeout(datetime.timedelta(seconds=call_timeout), future)
         except TimeoutError:
-            future._result = None
             raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                 method_name, call_timeout))
         else:
-            future._result = None
-            raise Return(result)
+            return result
 
-    @coroutine
     @validate(method_name="str_name", args="json_dict")
-    def call(self, method_name, args, call_timeout=10):
+    async def call(self, method_name, args, call_timeout=10):
         if method_name.startswith("_"):
             raise JavascriptSessionError(404, "No such method: " + str(method_name))
 
@@ -106,7 +102,7 @@ class JavascriptSession(object):
         PromiseContext.current = handler
 
         try:
-            future = context.async(method, (args,), JSFuture)
+            future = context.async_call(method, (args,), JSFuture)
         except JSException as e:
             value = e.value
             if hasattr(value, "code"):
@@ -127,21 +123,18 @@ class JavascriptSession(object):
             raise JavascriptExecutionError(500, str(e))
 
         if future.done():
-            raise Return(future.result())
+            return future.result()
 
         try:
-            result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
+            result = await with_timeout(datetime.timedelta(seconds=call_timeout), future)
         except TimeoutError:
-            future._result = None
             raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                 method_name, call_timeout))
         else:
-            future._result = None
-            raise Return(result)
+            return result
 
-    @coroutine
     @validate(value="str")
-    def eval(self, value):
+    async def eval(self, value):
 
         handler = JavascriptCallHandler(self.cache, self.env, self.build.context)
         PromiseContext.current = handler
@@ -160,15 +153,14 @@ class JavascriptSession(object):
         except Exception as e:
             raise APIError(500, e)
 
-        raise Return(result)
+        return result
 
-    @coroutine
-    def release(self, code=1006, reason="Closed normally"):
-        yield self.call_internal_method("released", {
+    async def release(self, code=1006, reason="Closed normally"):
+        await self.call_internal_method("released", {
             "code": code,
             "reason": reason
         })
         if self.build:
-            yield self.build.session_released(self)
+            await self.build.session_released(self)
             self.debug = None
         self.instance = None

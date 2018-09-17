@@ -1,22 +1,19 @@
 
-from tornado.gen import coroutine, Return, with_timeout, TimeoutError
-from tornado.web import HTTPError
-from tornado.ioloop import IOLoop
-from tornado.websocket import WebSocketClosedError
+from tornado.gen import with_timeout, TimeoutError
 
-import common.admin as a
+from anthill.common import admin as a
 
-from model.sources import NoSuchSourceError, SourceCodeError, JavascriptSourceError
-from model.build import JavascriptBuildError, NoSuchClass, NoSuchMethod
-from model.session import APIError, JavascriptSessionError
+from . model.sources import NoSuchSourceError, SourceCodeError, JavascriptSourceError
+from . model.build import JavascriptBuildError, NoSuchClass, NoSuchMethod
+from . model.session import APIError, JavascriptSessionError
 
-from common.environment import EnvironmentClient, AppNotFound
-from common.access import AccessToken
-from common.internal import Internal, InternalError
-from common.validate import validate
-from common import ElapsedTime
-from common.jsonrpc import JsonRPCError
-from common.source import NoSuchProjectError, SourceCodeRoot
+from anthill.common.environment import EnvironmentClient, AppNotFound
+from anthill.common.access import AccessToken
+from anthill.common.internal import Internal, InternalError
+from anthill.common.validate import validate
+from anthill.common import ElapsedTime
+from anthill.common.jsonrpc import JsonRPCError
+from anthill.common.source import NoSuchProjectError, SourceCodeRoot
 
 from datetime import datetime, timedelta
 
@@ -26,27 +23,26 @@ import ujson
 
 
 class ApplicationController(a.AdminController):
-    @coroutine
     @validate(app_id="str")
-    def get(self, app_id):
+    async def get(self, app_id):
 
         environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
 
         try:
-            app = yield environment_client.get_app_info(app_id)
+            app = await environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
         try:
-            yield sources.get_project(self.gamespace, app_id)
+            await sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError:
             has_no_settings = True
             commits = {}
         else:
             has_no_settings = False
             try:
-                commits = yield sources.list_versions(self.gamespace, app_id)
+                commits = await sources.list_versions(self.gamespace, app_id)
             except SourceCodeError:
                 commits = {}
 
@@ -100,20 +96,19 @@ class ApplicationController(a.AdminController):
 
 
 class ApplicationSettingsController(a.AdminController):
-    @coroutine
     @validate(app_id="str")
-    def get(self, app_id):
+    async def get(self, app_id):
 
         environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
 
         try:
-            app = yield environment_client.get_app_info(app_id)
+            app = await environment_client.get_app_info(app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
         try:
-            project = yield sources.get_project(self.gamespace, app_id)
+            project = await sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError as e:
             repository_url = ""
             ssh_private_key = ""
@@ -134,9 +129,8 @@ class ApplicationSettingsController(a.AdminController):
 
         raise a.Return(result)
 
-    @coroutine
     @validate(repository_url="str", repository_branch="str", ssh_private_key="str")
-    def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
+    async def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
 
         app_id = self.context.get("app_id")
 
@@ -145,15 +139,15 @@ class ApplicationSettingsController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield environment_client.get_app_info(app_id)
+            await environment_client.get_app_info(app_id)
         except AppNotFound as e:
             raise a.ActionError("App was not found.")
 
-        if not (yield builds.validate_repository_url(repository_url, ssh_private_key)):
+        if not (await builds.validate_repository_url(repository_url, ssh_private_key)):
             raise a.ActionError("Error: \"{0}\" is not a valid Git repository URL, or "
                                 "the repository does not exist, or the ssh key is wrong.".format(repository_url))
 
-        yield sources.update_project(self.gamespace, app_id, repository_url, repository_branch, ssh_private_key)
+        await sources.update_project(self.gamespace, app_id, repository_url, repository_branch, ssh_private_key)
         raise a.Redirect("app_settings",
                          message="Application settings have been updated.",
                          app_id=app_id)
@@ -217,13 +211,12 @@ class ApplicationSettingsController(a.AdminController):
 
 
 class ServerCodeSettingsController(a.AdminController):
-    @coroutine
-    def get(self):
+    async def get(self):
 
         sources = self.application.sources
 
         try:
-            project = yield sources.get_server_project(self.gamespace)
+            project = await sources.get_server_project(self.gamespace)
         except NoSuchProjectError as e:
             repository_url = ""
             ssh_private_key = ""
@@ -241,18 +234,17 @@ class ServerCodeSettingsController(a.AdminController):
 
         raise a.Return(result)
 
-    @coroutine
     @validate(repository_url="str", repository_branch="str", ssh_private_key="str")
-    def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
+    async def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
 
         sources = self.application.sources
         builds = self.application.builds
 
-        if not (yield builds.validate_repository_url(repository_url, ssh_private_key)):
+        if not (await builds.validate_repository_url(repository_url, ssh_private_key)):
             raise a.ActionError("Error: \"{0}\" is not a valid Git repository URL, or "
                                 "the repository does not exist, or the ssh key is wrong.".format(repository_url))
 
-        yield sources.update_server_project(self.gamespace, repository_url, repository_branch, ssh_private_key)
+        await sources.update_server_project(self.gamespace, repository_url, repository_branch, ssh_private_key)
 
         raise a.Redirect("server", message="Server Code settings have been updated.")
 
@@ -314,26 +306,25 @@ class ServerCodeSettingsController(a.AdminController):
 
 
 class ApplicationVersionController(a.AdminController):
-    @coroutine
     @validate(app_id="str", app_version="str")
-    def get(self, app_id, app_version):
+    async def get(self, app_id, app_version):
 
         environment_client = EnvironmentClient(self.application.cache)
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            app = yield environment_client.get_app_info(app_id)
+            app = await environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
         try:
-            project_settings = yield sources.get_project(self.gamespace, app_id)
+            project_settings = await sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError as e:
             raise a.Redirect("app_settings", message="Please define project settings first", app_id=app_id)
 
         try:
-            commit = yield sources.get_version_commit(self.gamespace, app_id, app_version)
+            commit = await sources.get_version_commit(self.gamespace, app_id, app_version)
         except NoSuchSourceError:
             current_commit = None
         else:
@@ -341,7 +332,7 @@ class ApplicationVersionController(a.AdminController):
 
         try:
             project = builds.get_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -349,7 +340,7 @@ class ApplicationVersionController(a.AdminController):
             commits_history = None
         else:
             try:
-                commits_history = yield project.get_commits_history(amount=50)
+                commits_history = await project.get_commits_history(amount=50)
             except SourceCodeError as e:
                 raise a.ActionError(e.message)
 
@@ -375,13 +366,11 @@ class ApplicationVersionController(a.AdminController):
                 or by clicking "Use This" on a commit of the resent commits history.
             """.format(app_version), style="danger")
 
-    @coroutine
-    def switch_commit_context(self):
+    async def switch_commit_context(self):
         commit = self.context.get("commit")
-        yield self.switch_commit(commit)
+        await self.switch_commit(commit)
 
-    @coroutine
-    def switch_to_latest_commit(self):
+    async def switch_to_latest_commit(self):
 
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
@@ -391,18 +380,18 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield environment_client.get_app_info(app_id)
+            await environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
         try:
-            project_settings = yield sources.get_project(self.gamespace, app_id)
+            project_settings = await sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError as e:
             raise a.Redirect("app_settings", message="Please define project settings first", app_id=app_id)
 
         try:
             project = builds.get_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -410,7 +399,7 @@ class ApplicationVersionController(a.AdminController):
             raise a.ActionError("Repository has not updated itself yet.")
 
         try:
-            latest_commit = yield project.pull_and_get_latest_commit()
+            latest_commit = await project.pull_and_get_latest_commit()
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -418,7 +407,7 @@ class ApplicationVersionController(a.AdminController):
             raise a.ActionError("Failed to check the latest commit")
 
         try:
-            updated = yield sources.update_commit(self.gamespace, app_id, app_version, latest_commit)
+            updated = await sources.update_commit(self.gamespace, app_id, app_version, latest_commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -433,8 +422,7 @@ class ApplicationVersionController(a.AdminController):
             message="Already up-to-date.",
             app_id=app_id, app_version=app_version)
 
-    @coroutine
-    def detach_version(self):
+    async def detach_version(self):
 
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
@@ -444,12 +432,12 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield environment_client.get_app_info(app_id)
+            await environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
         try:
-            deleted = yield sources.delete_commit(self.gamespace, app_id, app_version)
+            deleted = await sources.delete_commit(self.gamespace, app_id, app_version)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -464,8 +452,7 @@ class ApplicationVersionController(a.AdminController):
             message="Version was already disabled",
             app_id=app_id, app_version=app_version)
 
-    @coroutine
-    def pull_updates(self):
+    async def pull_updates(self):
 
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
@@ -475,18 +462,18 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield environment_client.get_app_info(app_id)
+            await environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
         try:
-            project_settings = yield sources.get_project(self.gamespace, app_id)
+            project_settings = await sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError as e:
             raise a.Redirect("app_settings", message="Please define project settings first", app_id=app_id)
 
         try:
             project = builds.get_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -494,7 +481,7 @@ class ApplicationVersionController(a.AdminController):
             raise a.ActionError("Repository has not updated itself yet.")
 
         try:
-            pulled = yield project.pull()
+            pulled = await project.pull()
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -506,9 +493,8 @@ class ApplicationVersionController(a.AdminController):
             message="Updates has been pulled.",
             app_id=app_id, app_version=app_version)
 
-    @coroutine
     @validate(commit="str_name")
-    def switch_commit(self, commit):
+    async def switch_commit(self, commit):
 
         app_id = self.context.get("app_id")
         app_version = self.context.get("app_version")
@@ -518,18 +504,18 @@ class ApplicationVersionController(a.AdminController):
         builds = self.application.builds
 
         try:
-            yield environment_client.get_app_info(app_id)
+            await environment_client.get_app_info(app_id)
         except AppNotFound:
             raise a.ActionError("App was not found.")
 
         try:
-            project_settings = yield sources.get_project(self.gamespace, app_id)
+            project_settings = await sources.get_project(self.gamespace, app_id)
         except NoSuchProjectError as e:
             raise a.Redirect("app_settings", message="Please define project settings first", app_id=app_id)
 
         try:
             project = builds.get_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -537,7 +523,7 @@ class ApplicationVersionController(a.AdminController):
             raise a.ActionError("Repository has not updated itself yet.")
 
         try:
-            commit_exists = yield project.check_commit(commit)
+            commit_exists = await project.check_commit(commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -545,7 +531,7 @@ class ApplicationVersionController(a.AdminController):
             raise a.ActionError("No such commit")
 
         try:
-            yield sources.update_commit(self.gamespace, app_id, app_version, commit)
+            await sources.update_commit(self.gamespace, app_id, app_version, commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -631,19 +617,18 @@ class ApplicationVersionController(a.AdminController):
 
 class ServerCodeController(a.AdminController):
 
-    @coroutine
-    def get(self):
+    async def get(self):
 
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_server_project(self.gamespace)
+            project_settings = await sources.get_server_project(self.gamespace)
         except NoSuchProjectError:
             raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
-            commit = yield sources.get_server_commit(self.gamespace)
+            commit = await sources.get_server_commit(self.gamespace)
         except NoSuchSourceError:
             current_commit = None
         else:
@@ -651,7 +636,7 @@ class ServerCodeController(a.AdminController):
 
         try:
             project = builds.get_server_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -659,7 +644,7 @@ class ServerCodeController(a.AdminController):
             commits_history = None
         else:
             try:
-                commits_history = yield project.get_commits_history(amount=50)
+                commits_history = await project.get_commits_history(amount=50)
             except SourceCodeError as e:
                 raise a.ActionError(e.message)
 
@@ -692,25 +677,23 @@ class ServerCodeController(a.AdminController):
                 Please refer to the API for more information.
             """, style="info")
 
-    @coroutine
-    def switch_commit_context(self):
+    async def switch_commit_context(self):
         commit = self.context.get("commit")
-        yield self.switch_commit(commit)
+        await self.switch_commit(commit)
 
-    @coroutine
-    def switch_to_latest_commit(self):
+    async def switch_to_latest_commit(self):
 
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_server_project(self.gamespace)
+            project_settings = await sources.get_server_project(self.gamespace)
         except NoSuchProjectError:
             raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
             project = builds.get_server_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -718,7 +701,7 @@ class ServerCodeController(a.AdminController):
             raise a.ActionError("Repository has not updated itself yet.")
 
         try:
-            latest_commit = yield project.pull_and_get_latest_commit()
+            latest_commit = await project.pull_and_get_latest_commit()
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -726,7 +709,7 @@ class ServerCodeController(a.AdminController):
             raise a.ActionError("Failed to check the latest commit")
 
         try:
-            updated = yield sources.update_server_commit(self.gamespace, latest_commit)
+            updated = await sources.update_server_commit(self.gamespace, latest_commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -735,13 +718,12 @@ class ServerCodeController(a.AdminController):
 
         raise a.Redirect("server", message="Already up-to-date.")
 
-    @coroutine
-    def detach_version(self):
+    async def detach_version(self):
 
         sources = self.application.sources
 
         try:
-            deleted = yield sources.delete_server_commit(self.gamespace)
+            deleted = await sources.delete_server_commit(self.gamespace)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -750,20 +732,19 @@ class ServerCodeController(a.AdminController):
 
         raise a.Redirect("server", message="Server code was already disabled")
 
-    @coroutine
-    def pull_updates(self):
+    async def pull_updates(self):
 
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_server_project(self.gamespace)
+            project_settings = await sources.get_server_project(self.gamespace)
         except NoSuchProjectError:
             raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
             project = builds.get_server_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -771,7 +752,7 @@ class ServerCodeController(a.AdminController):
             raise a.ActionError("Repository has not updated itself yet.")
 
         try:
-            pulled = yield project.pull()
+            pulled = await project.pull()
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -780,21 +761,20 @@ class ServerCodeController(a.AdminController):
 
         raise a.Redirect("server", message="Updates has been pulled.")
 
-    @coroutine
     @validate(commit="str_name")
-    def switch_commit(self, commit):
+    async def switch_commit(self, commit):
 
         sources = self.application.sources
         builds = self.application.builds
 
         try:
-            project_settings = yield sources.get_server_project(self.gamespace)
+            project_settings = await sources.get_server_project(self.gamespace)
         except NoSuchProjectError as e:
             raise a.Redirect("server_settings", message="Please define project settings first")
 
         try:
             project = builds.get_server_project(project_settings)
-            yield with_timeout(timedelta(seconds=10), project.init())
+            await with_timeout(timedelta(seconds=10), project.init())
 
         except JavascriptBuildError as e:
             raise a.ActionError(e.message)
@@ -802,7 +782,7 @@ class ServerCodeController(a.AdminController):
             raise a.ActionError("Repository has not updated itself yet.")
 
         try:
-            commit_exists = yield project.check_commit(commit)
+            commit_exists = await project.check_commit(commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -810,7 +790,7 @@ class ServerCodeController(a.AdminController):
             raise a.ActionError("No such commit")
 
         try:
-            yield sources.update_server_commit(self.gamespace, commit)
+            await sources.update_server_commit(self.gamespace, commit)
         except SourceCodeError as e:
             raise a.ActionError(e.message)
 
@@ -893,10 +873,9 @@ class ServerCodeController(a.AdminController):
 
 
 class ApplicationsController(a.AdminController):
-    @coroutine
-    def get(self):
+    async def get(self):
         environment_client = EnvironmentClient(self.application.cache)
-        apps = yield environment_client.list_apps()
+        apps = await environment_client.list_apps()
 
         result = {
             "apps": apps
@@ -950,13 +929,12 @@ class FunctionsController(a.AdminController):
             ])
         ]
 
-    @coroutine
-    def get(self):
+    async def get(self):
         functions = self.application.functions
 
-        raise Return({
-            "functions": (yield functions.list_functions(self.gamespace))
-        })
+        return {
+            "functions": (await functions.list_functions(self.gamespace))
+        }
 
     def access_scopes(self):
         return ["exec_admin"]

@@ -1,36 +1,27 @@
 
-from tornado.gen import coroutine
+from . import admin
+from . import handler
 
-import admin
-import handler
+from anthill.common import access, server, database, keyvalue
 
-import common.access
-import common.server
-import common.sign
-import common.environment
-import common.discover
-import common.database
-import common.keyvalue
-import common.source
+from . model.sources import JavascriptSourcesModel
+from . model.build import JavascriptBuildsModel
 
-from model.sources import JavascriptSourcesModel
-from model.build import JavascriptBuildsModel
-
-from common.options import options
-import options as _opts
+from anthill.common.options import options
+from . import options as _opts
 
 
-class ExecServer(common.server.Server):
+class ExecServer(server.Server):
     def __init__(self, db=None):
         super(ExecServer, self).__init__()
 
-        db = db or common.database.Database(
+        db = db or database.Database(
             host=options.db_host,
             database=options.db_name,
             user=options.db_username,
             password=options.db_password)
 
-        self.cache = common.keyvalue.KeyValueStorage(
+        self.cache = keyvalue.KeyValueStorage(
             host=options.cache_host,
             port=options.cache_port,
             db=options.cache_db,
@@ -73,6 +64,6 @@ class ExecServer(common.server.Server):
 
 
 if __name__ == "__main__":
-    stt = common.server.init()
-    common.access.AccessToken.init([common.access.public()])
-    common.server.start(ExecServer)
+    stt = server.init()
+    access.AccessToken.init([access.public()])
+    server.start(ExecServer)

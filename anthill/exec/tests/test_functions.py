@@ -1,22 +1,19 @@
-from tornado.gen import coroutine, Return, sleep
+from tornado.gen import sleep, multi
 from tornado.testing import gen_test
-from tornado.ioloop import IOLoop
 
 # noinspection PyUnresolvedReferences
 from v8py import JSException, Context, new
 
-# noinspection PyUnresolvedReferences
-from server import ExecServer
+from .. server import ExecServer
 
-# noinspection PyUnresolvedReferences
-from model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError
-# noinspection PyUnresolvedReferences
-from model.build import NoSuchClass, NoSuchMethod, JavascriptExecutionError
+from .. model.build import JavascriptBuild, JavascriptBuildError, JavascriptSessionError
+from .. model.build import NoSuchClass, NoSuchMethod, JavascriptExecutionError
 
-from common.options import default
-import options as _opts
+from anthill.common.options import default
+from .. import options as _opts
 
-from common import random_string, testing
+from anthill.common import random_string, testing
+
 import hashlib
 import inspect
 import re
@@ -38,14 +35,13 @@ class FunctionsTestCase(testing.ServerTestCase):
     def get_server_instance(cls, db=None):
         return ExecServer(db)
 
-    @coroutine
-    def check_build(self, build, name, checks):
+    async def check_build(self, build, name, checks):
         for args, result in checks:
-            should_be = yield build.call(name, args)
+            should_be = await build.call(name, args)
             self.assertEqual(should_be, result, "Function result is not as expected!")
 
     @gen_test
-    def test_bad_call(self):
+    async def test_bad_call(self):
         build = JavascriptBuild()
 
         build.add_source("""
@@ -61,19 +57,19 @@ class FunctionsTestCase(testing.ServerTestCase):
         """)
 
         with self.assertRaises(NoSuchMethod):
-            yield build.call("main", {"a": 1, "b": 2})
+            await build.call("main", {"a": 1, "b": 2})
 
         with self.assertRaises(NoSuchMethod):
-            yield build.call("no_such_method", {"a": 1, "b": 2})
+            await build.call("no_such_method", {"a": 1, "b": 2})
 
         with self.assertRaises(NoSuchMethod):
-            yield build.call("sum", {"a": 1, "b": 2})
+            await build.call("sum", {"a": 1, "b": 2})
 
         with self.assertRaises(NoSuchMethod):
-            yield build.call("Math.sqrt", {"a": 1, "b": 2})
+            await build.call("Math.sqrt", {"a": 1, "b": 2})
 
     @gen_test
-    def test_callback_sum(self):
+    async def test_callback_sum(self):
         build = JavascriptBuild()
 
         build.add_source("""
@@ -90,11 +86,11 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        self.assertEqual(3, (yield build.call("main", {"a": 1, "b": 2})))
-        self.assertEqual(0, (yield build.call("main", {"a": -50, "b": 50})))
+        self.assertEqual(3, (await build.call("main", {"a": 1, "b": 2})))
+        self.assertEqual(0, (await build.call("main", {"a": -50, "b": 50})))
 
     @gen_test
-    def test_immediate_sum(self):
+    async def test_immediate_sum(self):
         build = JavascriptBuild()
 
         build.add_source("""
@@ -111,11 +107,11 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        self.assertEqual(3, (yield build.call("main", {"a": 1, "b": 2})))
-        self.assertEqual(0, (yield build.call("main", {"a": -50, "b": 50})))
+        self.assertEqual(3, (await build.call("main", {"a": 1, "b": 2})))
+        self.assertEqual(0, (await build.call("main", {"a": -50, "b": 50})))
 
     @gen_test
-    def test_private_properties(self):
+    async def test_private_properties(self):
         class TestClass(object):
             def __init__(self):
                 self.prop_test_a = 5
@@ -166,14 +162,14 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        result = yield build.call("main", {"instance": instance})
+        result = await build.call("main", {"instance": instance})
         self.assertEqual(result, [5, None])
 
         self.assertEqual(instance.test_c, 100)
         self.assertEqual(instance._test_d, 11)
 
     @gen_test
-    def test_api_error(self):
+    async def test_api_error(self):
 
         build = JavascriptBuild()
 
@@ -187,7 +183,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         """)
 
         try:
-            yield build.call("main", {})
+            await build.call("main", {})
         except JavascriptExecutionError as error:
             self.assertEqual(error.code, 400)
             self.assertEqual(error.message, "bad_idea")
@@ -195,7 +191,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             self.fail("Expected APIError")
 
     @gen_test
-    def test_api_error_traceback(self):
+    async def test_api_error_traceback(self):
 
         build = JavascriptBuild()
 
@@ -225,7 +221,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         """, filename="test_api_error.js")
 
         try:
-            yield build.call("main", {})
+            await build.call("main", {})
         except JavascriptExecutionError as error:
             self.assertEqual(error.code, 400)
             self.assertEqual(error.message, "bad_idea")
@@ -244,7 +240,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             self.fail("Expected APIError")
 
     @gen_test
-    def test_api_error_callback(self):
+    async def test_api_error_callback(self):
 
         build = JavascriptBuild()
 
@@ -259,7 +255,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         """)
 
         with self.assertRaises(JavascriptExecutionError) as error:
-            yield build.call("main", {})
+            await build.call("main", {})
 
         self.assertEqual(error.exception.code, 400)
         self.assertEqual(error.exception.message, "bad_idea")
@@ -295,7 +291,7 @@ class FunctionsTestCase(testing.ServerTestCase):
     """
 
     @gen_test
-    def test_sha(self):
+    async def test_sha(self):
 
         build = JavascriptBuild()
 
@@ -310,7 +306,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             test_sha256.allow_call = true;
         """)
 
-        yield self.check_build(build, "test_sha256", [
+        await self.check_build(build, "test_sha256", [
             ({"i": ""}, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"),
             ({"i": "test"}, "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"),
             ({"i": "1"}, "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"),
@@ -318,7 +314,7 @@ class FunctionsTestCase(testing.ServerTestCase):
         ])
 
     @gen_test
-    def test_session_release(self):
+    async def test_session_release(self):
 
         build = JavascriptBuild()
 
@@ -346,11 +342,11 @@ class FunctionsTestCase(testing.ServerTestCase):
 
         session = build.session("SessionTest", {})
         self.assertEqual(Obj.released, False)
-        yield session.release()
+        await session.release()
         self.assertEqual(Obj.released, True)
 
     @gen_test
-    def test_session(self):
+    async def test_session(self):
 
         build = JavascriptBuild()
         build.add_source(FunctionsTestCase.SHA256)
@@ -376,14 +372,14 @@ class FunctionsTestCase(testing.ServerTestCase):
         session = build.session("SessionTest", {})
 
         try:
-            res = yield [
+            res = await multi([
                 session.call("main", {"message": "", "time": 0.5}),
                 session.call("main", {"message": "test", "time": 0.2}),
                 session.call("main", {"message": "1", "time": 1}),
                 session.call("main", {"message": "sha-256", "time": 0.1})
-            ]
+            ])
         finally:
-            yield session.release()
+            await session.release()
 
         self.assertEqual(res, [
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -392,7 +388,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             "3128f8ac2988e171a53782b144b98a5c2ee723489c8b220cece002916fbc71e2"])
 
     @gen_test(timeout=60)
-    def test_session_stress(self):
+    async def test_session_stress(self):
 
         if is_debugging():
             self.skipTest("Stress test doesn't go well with debugging")
@@ -423,23 +419,23 @@ class FunctionsTestCase(testing.ServerTestCase):
         calls = []
         expected = []
 
-        for i in xrange(0, 10000):
+        for i in range(0, 10000):
             time = (i % 100) / 100
             rand = random_string(512)
-            expected_result = hashlib.sha256(rand).hexdigest()
+            expected_result = hashlib.sha256(rand.encode("utf-8")).hexdigest()
 
             calls.append(session.call("main", {"message": rand, "time": time}, call_timeout=20))
             expected.append(expected_result)
 
         try:
-            res = yield calls
+            res = await multi(calls)
         finally:
-            yield session.release()
+            await session.release()
 
         self.assertEqual(res, expected)
 
     @gen_test
-    def test_context(self):
+    async def test_context(self):
 
         build = JavascriptBuild()
         build.add_source(FunctionsTestCase.SHA256)
@@ -462,8 +458,7 @@ class FunctionsTestCase(testing.ServerTestCase):
 
         session = build.session("ContextTest", {})
 
-        @coroutine
-        def do_delay():
+        async def do_delay():
             """
             This will ensure the functions are called in such order:
 
@@ -476,22 +471,22 @@ class FunctionsTestCase(testing.ServerTestCase):
 
             """
 
-            yield sleep(0.25)
-            result = yield session.call("main", {})
-            raise Return(result)
+            await sleep(0.25)
+            result = await session.call("main", {})
+            return result
 
         try:
-            res = yield [
+            res = await multi([
                 session.call("main", {}),
                 do_delay(),
-            ]
+            ])
         finally:
-            yield session.release()
+            await session.release()
 
         self.assertEqual(res, [True, True])
 
     @gen_test(timeout=1)
-    def test_parallel(self):
+    async def test_parallel(self):
         """
         This test has timeout 1 because 4 calls (0.5s each) being called in parallel should be
         definitely done within one second
@@ -529,14 +524,14 @@ class FunctionsTestCase(testing.ServerTestCase):
             d = session.call("main", {"a": 100000, "b": 200000})
 
             # call them in parallel
-            res = yield [a, b, c, d]
+            res = await multi([a, b, c, d])
         finally:
-            yield session.release()
+            await session.release()
 
         self.assertEqual(res, [3, 300, 0, 300000])
 
     @gen_test(timeout=1)
-    def test_parallel_api(self):
+    async def test_parallel_api(self):
         build = JavascriptBuild()
 
         build.add_source("""
@@ -551,10 +546,10 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        yield build.call("main", {})
+        await build.call("main", {})
 
     @gen_test(timeout=5)
-    def test_autorelease(self):
+    async def test_autorelease(self):
 
         build = JavascriptBuild(autorelease_time=1000)
 
@@ -567,7 +562,7 @@ class FunctionsTestCase(testing.ServerTestCase):
             main.allow_call = true;
         """)
 
-        yield build.call("main", {})
-        yield sleep(1.5)
+        await build.call("main", {})
+        await sleep(1.5)
 
         self.assertTrue(build.released)

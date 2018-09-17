@@ -1,30 +1,29 @@
 
 import tornado.gen
 
-from tornado.gen import Return, sleep, Future
-from tornado.httpclient import HTTPRequest, HTTPError, AsyncHTTPClient
+from tornado.gen import sleep, Future
+from tornado.httpclient import HTTPRequest, HTTPError
 from tornado.simple_httpclient import SimpleAsyncHTTPClient
 
-# noinspection PyUnresolvedReferences
-import options as _opts
-from common.internal import Internal, InternalError
-from common.validate import validate_value
-from common.server import Server
-from util import promise, PromiseContext, APIError
+from .. import options as _opts
+from anthill.common.internal import Internal, InternalError
+from anthill.common.validate import validate_value
+from anthill.common.server import Server
+from . util import promise, PromiseContext, APIError
 
 API_TIMEOUT = 5
 
 
 # noinspection PyUnusedLocal
 @promise
-def sleep(delay, handler=None):
-    yield tornado.gen.sleep(delay)
+async def sleep(delay, handler=None):
+    await tornado.gen.sleep(delay)
 
 
 # noinspection PyUnusedLocal
 @promise
-def moment(handler=None):
-    yield tornado.gen.moment
+async def moment(handler=None):
+    await tornado.gen.moment
 
 
 def log(message):
@@ -35,12 +34,12 @@ def log(message):
 
 class AdminAPI(object):
     @promise
-    def delete_accounts(self, accounts, gamespace_only=True, handler=None, *args, **kwargs):
+    async def delete_accounts(self, accounts, gamespace_only=True, handler=None, *args, **kwargs):
         application = Server.instance()
 
-        publisher = yield application.acquire_publisher()
+        publisher = await application.acquire_publisher()
 
-        yield publisher.publish("DEL", {
+        await publisher.publish("DEL", {
             "gamespace": handler.env["gamespace"],
             "accounts": accounts,
             "gamespace_only": gamespace_only
@@ -54,7 +53,7 @@ class WebAPI(object):
         self.rc_cache = {}
 
     @promise
-    def get(self, url, headers=None, *args, **kwargs):
+    async def get(self, url, headers=None, *args, **kwargs):
         request = HTTPRequest(url=url, use_gzip=True, headers=headers)
 
         existing_futures = self.rc_cache.get(url, None)
@@ -62,14 +61,14 @@ class WebAPI(object):
         if existing_futures is not None:
             future = Future()
             existing_futures.append(future)
-            result = yield future
-            raise Return(result)
+            result = await future
+            return result
 
         new_futures = []
         self.rc_cache[url] = new_futures
 
         try:
-            response = yield self.http_client.fetch(request)
+            response = await self.http_client.fetch(request)
         except HTTPError as e:
             e = APIError(e.code, e.message)
 
@@ -86,13 +85,13 @@ class WebAPI(object):
 
             del self.rc_cache[url]
 
-        raise Return(body)
+        return body
 
 
 # noinspection PyUnusedLocal
 class ConfigAPI(object):
     @promise
-    def get(self, handler=None, *ignored):
+    async def get(self, handler=None, *ignored):
 
         app_name = handler.env["application_name"]
         app_version = handler.env["application_version"]
@@ -100,12 +99,12 @@ class ConfigAPI(object):
         key = "config:" + str(app_name) + ":" + str(app_version)
         cached = handler.get_cache(key)
         if cached:
-            raise Return(cached)
+            return cached
 
         internal = Internal()
 
         try:
-            info = yield internal.request(
+            info = await internal.request(
                 "config", "get_configuration",
                 timeout=API_TIMEOUT,
                 app_name=app_name,
@@ -115,27 +114,27 @@ class ConfigAPI(object):
             raise APIError(e.code, e.body)
 
         handler.set_cache(key, info)
-        raise Return(info)
+        return info
 
 
 # noinspection PyUnusedLocal
 class StoreAPI(object):
 
     @promise
-    def get(self, name, handler=None, *ignored):
+    async def get(self, name, handler=None, *ignored):
 
-        if not isinstance(name, (unicode, str)):
+        if not isinstance(name, str):
             raise APIError(400, "name should be a string")
 
         key = "store:" + str(name)
         cached = handler.get_cache(key)
         if cached:
-            raise Return([cached])
+            return [cached]
 
         internal = Internal()
 
         try:
-            config = yield internal.request(
+            config = await internal.request(
                 "store", "get_store",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -144,15 +143,15 @@ class StoreAPI(object):
             raise APIError(e.code, e.body)
 
         handler.set_cache(key, config)
-        raise Return(config)
+        return config
 
     @promise
-    def new_order(self, store, item, currency, amount, component, env=None, handler=None, *ignored):
+    async def new_order(self, store, item, currency, amount, component, env=None, handler=None, *ignored):
 
         internal = Internal()
 
         try:
-            result = yield internal.request(
+            result = await internal.request(
                 "store", "new_order",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -166,15 +165,15 @@ class StoreAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(result)
+        return result
 
     @promise
-    def update_order(self, order_id, handler=None, *ignored):
+    async def update_order(self, order_id, handler=None, *ignored):
 
         internal = Internal()
 
         try:
-            result = yield internal.request(
+            result = await internal.request(
                 "store", "update_order",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -183,15 +182,15 @@ class StoreAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(result)
+        return result
 
     @promise
-    def update_orders(self, handler=None, *ignored):
+    async def update_orders(self, handler=None, *ignored):
 
         internal = Internal()
 
         try:
-            result = yield internal.request(
+            result = await internal.request(
                 "store", "update_orders",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -199,22 +198,22 @@ class StoreAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(result)
+        return result
 
 
 # noinspection PyUnusedLocal
 class ProfileAPI(object):
 
     @promise
-    def get(self, path="", handler=None, *ignored):
+    async def get(self, path="", handler=None, *ignored):
 
-        if not isinstance(path, (unicode, str)):
+        if not isinstance(path, str):
             raise APIError(400, "Path should be a string")
 
         internal = Internal()
 
         try:
-            profile = yield internal.request(
+            profile = await internal.request(
                 "profile", "get_my_profile",
                 timeout=API_TIMEOUT,
                 gamespace_id=handler.env["gamespace"],
@@ -223,12 +222,12 @@ class ProfileAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(profile)
+        return profile
 
     @promise
-    def update(self, profile=None, path="", merge=True, handler=None, *ignored):
+    async def update(self, profile=None, path="", merge=True, handler=None, *ignored):
 
-        if not isinstance(path, (unicode, str)):
+        if not isinstance(path, str):
             raise APIError(400, "Path should be a string")
 
         key = "profile:" + str(path)
@@ -238,7 +237,7 @@ class ProfileAPI(object):
         internal = Internal()
 
         try:
-            profile = yield internal.request(
+            profile = await internal.request(
                 "profile", "update_profile",
                 timeout=API_TIMEOUT,
                 gamespace_id=handler.env["gamespace"],
@@ -250,10 +249,10 @@ class ProfileAPI(object):
             raise APIError(e.code, e.body)
 
         handler.set_cache(key, profile)
-        raise Return(profile)
+        return profile
 
     @promise
-    def query(self, query, limit=1000, handler=None, *ignored):
+    async def query(self, query, limit=1000, handler=None, *ignored):
 
         if not validate_value(query, "json_dict"):
             raise APIError(400, "Query should be a JSON object")
@@ -261,7 +260,7 @@ class ProfileAPI(object):
         internal = Internal()
 
         try:
-            results = yield internal.request(
+            results = await internal.request(
                 "profile", "query_profiles",
                 timeout=API_TIMEOUT,
                 gamespace_id=handler.env["gamespace"],
@@ -270,18 +269,18 @@ class ProfileAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(results)
+        return results
 
 
 # noinspection PyUnusedLocal
 class SocialAPI(object):
 
     @promise
-    def acquire_name(self, kind, name, handler=None, *ignored):
+    async def acquire_name(self, kind, name, handler=None, *ignored):
         internal = Internal()
 
         try:
-            profile = yield internal.request(
+            profile = await internal.request(
                 "social", "acquire_name",
                 gamespace=handler.env["gamespace"],
                 account=handler.env["account"],
@@ -290,14 +289,14 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(profile)
+        return profile
 
     @promise
-    def check_name(self, kind, name, handler=None, *ignored):
+    async def check_name(self, kind, name, handler=None, *ignored):
         internal = Internal()
 
         try:
-            account_id = yield internal.request(
+            account_id = await internal.request(
                 "social", "check_name",
                 gamespace=handler.env["gamespace"],
                 kind=kind,
@@ -305,14 +304,14 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(account_id)
+        return account_id
 
     @promise
-    def release_name(self, kind, handler=None, *ignored):
+    async def release_name(self, kind, handler=None, *ignored):
         internal = Internal()
 
         try:
-            released = yield internal.request(
+            released = await internal.request(
                 "social", "release_name",
                 gamespace=handler.env["gamespace"],
                 account=handler.env["account"],
@@ -320,17 +319,17 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(released)
+        return released
 
     @promise
-    def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
+    async def update_profile(self, group_id, profile=None, path=None, merge=True, handler=None, *ignored):
         if path and not isinstance(path, (list, tuple)):
             raise APIError(400, "Path should be a list/tuple")
 
         internal = Internal()
 
         try:
-            profile = yield internal.request(
+            profile = await internal.request(
                 "social", "update_group_profile",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -341,10 +340,10 @@ class SocialAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(profile)
+        return profile
 
     @promise
-    def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, handler=None, *ignored):
+    async def update_group_profiles(self, group_profiles, path=None, merge=True, synced=False, handler=None, *ignored):
         if not isinstance(group_profiles, dict):
             raise APIError(400, "Group profiles should be a dict")
 
@@ -354,30 +353,30 @@ class SocialAPI(object):
         internal = Internal()
 
         try:
-            profile = yield internal.request(
+            profile = await internal.request(
                 "social", "update_group_profiles",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
                 group_profiles=group_profiles,
-                path=path,
+                path=path or [],
                 merge=merge,
                 synced=synced)
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(profile)
+        return profile
 
 
 # noinspection PyUnusedLocal
 class MessageAPI(object):
 
     @promise
-    def send_batch(self, sender, messages, authoritative=True, handler=None, *ignored):
+    async def send_batch(self, sender, messages, authoritative=True, handler=None, *ignored):
 
         internal = Internal()
 
         try:
-            yield internal.request(
+            await internal.request(
                 "message", "send_batch",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -386,19 +385,19 @@ class MessageAPI(object):
                 authoritative=authoritative)
         except InternalError as e:
             raise APIError(e.code, e.body)
-        raise Return("OK")
+        return "OK"
 
 
 # noinspection PyUnusedLocal
 class PromoAPI(object):
 
     @promise
-    def use_code(self, key, handler=None, *ignored):
+    async def use_code(self, key, handler=None, *ignored):
 
         internal = Internal()
 
         try:
-            result = yield internal.request(
+            result = await internal.request(
                 "promo", "use_code",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -412,16 +411,16 @@ class PromoAPI(object):
         except KeyError:
             raise APIError(500, "Response had no 'result' field.")
 
-        raise Return(result)
+        return result
 
 
 class EventAPI(object):
     @promise
-    def update_event_profile(self, event_id, profile, path=None, merge=True, handler=None):
+    async def update_event_profile(self, event_id, profile, path=None, merge=True, handler=None):
         internal = Internal()
 
         try:
-            events = yield internal.request(
+            events = await internal.request(
                 "event", "update_event_profile",
                 event_id=event_id,
                 profile=profile,
@@ -433,14 +432,14 @@ class EventAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(events)
+        return events
 
     @promise
-    def list(self, extra_start_time=0, extra_end_time=0, handler=None):
+    async def list(self, extra_start_time=0, extra_end_time=0, handler=None):
         internal = Internal()
 
         try:
-            events = yield internal.request(
+            events = await internal.request(
                 "event", "get_list",
                 timeout=API_TIMEOUT,
                 gamespace=handler.env["gamespace"],
@@ -450,7 +449,7 @@ class EventAPI(object):
         except InternalError as e:
             raise APIError(e.code, e.body)
 
-        raise Return(events)
+        return events
 
 
 class APIS(object):

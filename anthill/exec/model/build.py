@@ -1,27 +1,28 @@
 import os
 
-from tornado.gen import coroutine, Return, Future, TimeoutError, with_timeout, IOLoop
+from tornado.gen import TimeoutError, with_timeout, IOLoop
 from tornado.ioloop import PeriodicCallback
 # noinspection PyUnresolvedReferences
 from v8py import JSException, JSPromise, Context, new, JavaScriptTerminated, Script
 
-from api import expose
-from common.model import Model
-from common.access import InternalError
-from common.source import SourceCodeRoot, SourceCommitAdapter, SourceProjectAdapter
-from common.source import SourceCodeError, ServerCodeAdapter
-from common.validate import validate
+from . api import expose
+from . session import JavascriptSession, JavascriptSessionError
+from . util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, JSFuture
+from . import stdlib
 
-from session import JavascriptSession, JavascriptSessionError
-from util import APIError, PromiseContext, JavascriptCallHandler, JavascriptExecutionError, JSFuture
+from anthill.common.model import Model
+from anthill.common.access import InternalError
+from anthill.common.source import SourceCodeRoot, SourceCommitAdapter, SourceProjectAdapter
+from anthill.common.source import SourceCodeError, ServerCodeAdapter
+from anthill.common.validate import validate
 
-import stdlib
+
 from expiringdict import ExpiringDict
 
-from common.options import options
+from anthill.common.options import options
 import datetime
 import logging
-import options as _opts
+from .. import options as _opts
 
 
 class JavascriptBuildError(Exception):
@@ -129,9 +130,8 @@ class JavascriptBuild(object):
         return JavascriptSession(self, instance, env, log=log, debug=debug,
                                  cache=self.build_cache, promise_type=self.promise_type)
 
-    @coroutine
     @validate(method_name="str_name", args="json_dict")
-    def call(self, method_name, args, call_timeout=10, **env):
+    async def call(self, method_name, args, call_timeout=10, **env):
 
         if method_name.startswith("_"):
             raise NoSuchMethod()
@@ -158,7 +158,7 @@ class JavascriptBuild(object):
 
         try:
             try:
-                future = self.context.async(method, (args,), JSFuture)
+                future = self.context.async_call(method, (args,), JSFuture)
             except JSException as e:
                 value = e.value
                 if hasattr(value, "code"):
@@ -179,17 +179,15 @@ class JavascriptBuild(object):
                 raise JavascriptExecutionError(500, str(e))
 
             if future.done():
-                raise Return(future.result())
+                return future.result()
 
             try:
-                result = yield with_timeout(datetime.timedelta(seconds=call_timeout), future)
+                result = await with_timeout(datetime.timedelta(seconds=call_timeout), future)
             except TimeoutError:
-                future._result = None
                 raise APIError(408, "Total function '{0}' call timeout ({1})".format(
                     method_name, call_timeout))
             else:
-                future._result = None
-                raise Return(result)
+                return result
 
         finally:
             del handler.context
@@ -202,12 +200,10 @@ class JavascriptBuild(object):
     def remove_ref(self):
         self.refs -= 1
 
-    @coroutine
-    def session_released(self, session):
+    async def session_released(self, session):
         self.remove_ref()
 
-    @coroutine
-    def release(self):
+    async def release(self):
         if self.released:
             return
 
@@ -221,7 +217,7 @@ class JavascriptBuild(object):
             logging.info("Build released {0}".format(self.build_id))
 
         if self.model:
-            yield self.model.build_released(self)
+            await self.model.build_released(self)
 
         self.released = True
 
@@ -244,71 +240,68 @@ class JavascriptBuildsModel(Model):
         return str(JavascriptBuildsModel.SERVER_PROJECT_NAME) + "_" + str(source.repository_commit)
 
     def validate_repository_url(self, url, ssh_private_key=None):
-        return self.root.validate_repository_url(url, ssh_private_key=ssh_private_key)
+        return self.root.validate_repository_url(url, ssh_private_key)
 
-    @coroutine
     @validate(source=ServerCodeAdapter)
-    def get_server_build(self, source):
+    async def get_server_build(self, source):
 
         build_id = JavascriptBuildsModel.__get_server_build_id__(source)
         build = self.builds.get(build_id, None)
         if build:
-            raise Return(build)
+            return build
 
         try:
             project = self.root.project(source.gamespace_id, JavascriptBuildsModel.SERVER_PROJECT_NAME,
                                         source.repository_url, source.repository_branch,
                                         source.ssh_private_key)
-            yield project.init()
+            await project.init()
             source_build = project.build(source.repository_commit)
-            yield source_build.init()
+            await source_build.init()
         except SourceCodeError as e:
             raise JavascriptBuildError(e.code, e.message)
 
         build = JavascriptBuild(build_id, self, source_build.build_dir, is_server=True)
         self.builds[build_id] = build
-        raise Return(build)
+        return build
 
-    @coroutine
     @validate(source=SourceCommitAdapter)
-    def get_build(self, source):
+    async def get_build(self, source):
 
         build_id = JavascriptBuildsModel.__get_build_id__(source)
         build = self.builds.get(build_id, None)
         if build:
-            raise Return(build)
+            return build
 
         try:
             project = self.root.project(source.gamespace_id, source.name,
                                         source.repository_url, source.repository_branch,
                                         source.ssh_private_key)
-            yield project.init()
+            await project.init()
             source_build = project.build(source.repository_commit)
-            yield source_build.init()
+            await source_build.init()
         except SourceCodeError as e:
             raise JavascriptBuildError(e.code, e.message)
 
         build = JavascriptBuild(build_id, self, source_build.build_dir)
         self.builds[build_id] = build
-        raise Return(build)
+        return build
 
-    @coroutine
     @validate(project_settings=SourceProjectAdapter, commit="str_name")
-    def new_build_by_commit(self, project_settings, commit):
+    async def new_build_by_commit(self, project_settings, commit):
 
         try:
             project = self.root.project(
                 project_settings.gamespace_id, project_settings.name,
                 project_settings.repository_url, project_settings.repository_branch,
                 project_settings.ssh_private_key)
-            yield project.init()
+            await project.init()
             source_build = project.build(commit)
-            yield source_build.init()
+            await source_build.init()
         except SourceCodeError as e:
             raise JavascriptBuildError(e.code, e.message)
 
         build = JavascriptBuild(None, self, source_build.build_dir)
-        raise Return(build)
+        return build
 
     @validate(project_settings=ServerCodeAdapter)
     def get_server_project(self, project_settings):
@@ -340,7 +333,6 @@ class JavascriptBuildsModel(Model):
     def __remove_build__(self, build):
         self.builds.pop(build.build_id, None)
 
-    @coroutine
-    def build_released(self, build):
+    async def build_released(self, build):
         if build.build_id:
             self.__remove_build__(build)
