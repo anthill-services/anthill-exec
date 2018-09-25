@@ -1,0 +1,2 @@
+-i https://cdn.anthillplatform.org/python
+v8py==0.9.14
