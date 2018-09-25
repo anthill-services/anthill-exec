@@ -55,7 +55,7 @@ class ApplicationController(a.AdminController):
             "has_no_settings": has_no_settings
         }
 
-        raise a.Return(result)
+        return result
 
     def render(self, data):
         r = [
@@ -79,7 +79,7 @@ class ApplicationController(a.AdminController):
             a.links("Application '{0}' versions".format(data["app_name"]), links=[
                 a.link("app_version", v_name, icon="tags", badge=get_version_commit(v_name),
                        app_id=self.context.get("app_id"), app_version=v_name)
-                for v_name, v_id in data["versions"].iteritems()
+                for v_name, v_id in data["versions"].items()
             ]),
             a.links("Navigate", [
                 a.link("app_settings", "Application Settings", icon="cogs", app_id=self.context.get("app_id")),
@@ -127,7 +127,7 @@ class ApplicationSettingsController(a.AdminController):
             "ssh_private_key": ssh_private_key
         }
 
-        raise a.Return(result)
+        return result
 
     @validate(repository_url="str", repository_branch="str", ssh_private_key="str")
     async def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
@@ -232,7 +232,7 @@ class ServerCodeSettingsController(a.AdminController):
             "ssh_private_key": ssh_private_key
         }
 
-        raise a.Return(result)
+        return result
 
     @validate(repository_url="str", repository_branch="str", ssh_private_key="str")
     async def update_settings(self, repository_url, repository_branch, ssh_private_key, *ignored):
@@ -353,7 +353,7 @@ class ApplicationVersionController(a.AdminController):
             "commits_history": commits_history
         }
 
-        raise a.Return(result)
+        return result
 
     @staticmethod
     def no_commit_notice(app_version):
@@ -653,7 +653,7 @@ class ServerCodeController(a.AdminController):
             "commits_history": commits_history
         }
 
-        raise a.Return(result)
+        return result
 
     @staticmethod
     def no_commit_notice():
@@ -881,14 +881,14 @@ class ApplicationsController(a.AdminController):
             "apps": apps
         }
 
-        raise a.Return(result)
+        return result
 
     def render(self, data):
         return [
             a.breadcrumbs([], "Applications"),
             a.links("Select application", links=[
                 a.link("app", app_name, icon="mobile", app_id=app_id)
-                for app_id, app_name in data["apps"].iteritems()
+                for app_id, app_name in data["apps"].items()
                 ]),
             a.links("Navigate", [
                 a.link("index", "Go back", icon="chevron-left"),
