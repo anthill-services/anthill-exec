@@ -485,4 +485,7 @@ def expose(context, is_server=False):
             "admin": APIS.admin
         })
 
-    context.expose_readonly(**expose_objects)
+    # define them as readonly
+    for name, callback in expose_objects.items():
+        context.Object.defineProperty(
+            context.glob, name, {'value': callback, 'writable': False})

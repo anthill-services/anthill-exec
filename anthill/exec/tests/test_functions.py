@@ -387,6 +387,36 @@ class FunctionsTestCase(testing.ServerTestCase):
             "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
             "3128f8ac2988e171a53782b144b98a5c2ee723489c8b220cece002916fbc71e2"])
 
+    @gen_test
+    async def test_readonly_api(self):
+
+        build = JavascriptBuild()
+        build.add_source(FunctionsTestCase.SHA256)
+
+        build.add_source("""
+            function ReadonlyTest()
+            {
+            }
+            
+            ReadonlyTest.allow_session = true;
+            
+            ReadonlyTest.prototype.test = function()
+            {
+                log("test1");
+                log = function(fake) {};
+                log("test2");
+            }
+        """)
+
+        log_history = []
+
+        def test_log(item):
+            log_history.append(item)
+
+        session = build.session("ReadonlyTest", {}, log=test_log)
+        await session.call("test", {})
+        self.assertEqual(log_history, ["test1", "test2"])
+
     @gen_test(timeout=60)
     async def test_session_stress(self):
 
