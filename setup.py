@@ -1,0 +1,21 @@
+
+from setuptools import setup
+
+DEPENDENCIES = [
+    "anthill-common>=0.1.0",
+    "v8py==0.9.14"
+]
+
+setup(
+    name='anthill-exec',
+    version='0.1.0',
+    description='Server-side javascript code execution for Anthill platform',
+    author='desertkun',
+    license='MIT',
+    author_email='desertkun@gmail.com',
+    url='https://github.com/anthill-platform/anthill-exec',
+    namespace_packages=["anthill"],
+    packages=["anthill.exec"],
+    zip_safe=False,
+    install_requires=DEPENDENCIES
+)
