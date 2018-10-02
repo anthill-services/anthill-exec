@@ -2,13 +2,14 @@
 from setuptools import setup
 
 DEPENDENCIES = [
-    "anthill-common>=0.1.0",
+    "anthill-common",
     "v8py==0.9.14"
 ]
 
 setup(
     name='anthill-exec',
-    version='0.1.0',
+    setup_requires=["pypigit-version"],
+    git_version="0.1.0",
     description='Server-side javascript code execution for Anthill platform',
     author='desertkun',
     license='MIT',
