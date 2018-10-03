@@ -8,6 +8,9 @@ DEPENDENCIES = [
 
 setup(
     name='anthill-exec',
+    package_data={
+      "anthill.exec": ["anthill/exec/sql", "anthill/exec/static"]
+    },
     setup_requires=["pypigit-version"],
     git_version="0.1.0",
     description='Server-side javascript code execution for Anthill platform',
