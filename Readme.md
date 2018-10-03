@@ -1,4 +1,8 @@
-# Exec Service [![Build Status](https://travis-ci.org/anthill-platform/anthill-exec.svg?branch=master)](https://travis-ci.org/anthill-platform/anthill-exec)
+# Exec Service 
+
+[![Build Status](https://travis-ci.org/anthill-platform/anthill-exec.svg?branch=master)](https://travis-ci.org/anthill-platform/anthill-exec)
+![PyPI license](https://img.shields.io/pypi/l/ansicolortags.svg)
+![PyPI pyversions](https://img.shields.io/badge/python-3.5-blue.svg)
 
 Every multiplayer project needs to run the game code on the backend side.
 <a href="https://github.com/anthill-platform/anthill-game">Game Service</a>
