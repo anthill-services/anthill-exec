@@ -1,5 +1,5 @@
 
-from setuptools import setup
+from setuptools import setup, find_packages
 
 DEPENDENCIES = [
     "anthill-common",
@@ -16,7 +16,7 @@ setup(
     author_email='desertkun@gmail.com',
     url='https://github.com/anthill-platform/anthill-exec',
     namespace_packages=["anthill"],
-    packages=["anthill.exec"],
+    packages=find_packages(),
     dependency_links=[
         'https://cdn.anthillplatform.org/python/v8py'
     ],
