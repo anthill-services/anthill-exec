@@ -17,6 +17,9 @@ setup(
     url='https://github.com/anthill-platform/anthill-exec',
     namespace_packages=["anthill"],
     packages=["anthill.exec"],
+    dependency_links=[
+        'https://cdn.anthillplatform.org/python/v8py'
+    ],
     zip_safe=False,
     install_requires=DEPENDENCIES
 )
