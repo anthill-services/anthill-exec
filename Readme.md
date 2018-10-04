@@ -1,6 +1,6 @@
 # Exec Service 
 
-[![Build Status](https://travis-ci.org/anthill-platform/anthill-exec.svg?branch=master)](https://travis-ci.org/anthill-platform/anthill-exec)
+[![Build Status](https://travis-ci.org/anthill-platform/anthill-exec.svg)](https://travis-ci.org/anthill-platform/anthill-exec)
 ![PyPI license](https://img.shields.io/pypi/l/ansicolortags.svg)
 ![PyPI pyversions](https://img.shields.io/badge/python-3.5-blue.svg)
 
