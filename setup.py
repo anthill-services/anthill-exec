@@ -19,6 +19,7 @@ setup(
     author_email='desertkun@gmail.com',
     url='https://github.com/anthill-platform/anthill-exec',
     namespace_packages=["anthill"],
+    include_package_data=True,
     packages=find_packages(),
     dependency_links=[
         'https://cdn.anthillplatform.org/python/v8py'
