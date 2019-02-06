@@ -340,7 +340,7 @@ class ApplicationVersionController(a.AdminController):
             commits_history = None
         else:
             try:
-                commits_history = await project.get_commits_history(amount=50)
+                commits_history = await project.get_commits_history(50)
             except SourceCodeError as e:
                 raise a.ActionError(e.message)
 
@@ -634,6 +634,8 @@ class ServerCodeController(a.AdminController):
         else:
             current_commit = commit.repository_commit
 
+        server_fetch_error = None
+
         try:
             project = builds.get_server_project(project_settings)
             await with_timeout(timedelta(seconds=10), project.init())
@@ -642,15 +644,22 @@ class ServerCodeController(a.AdminController):
             raise a.ActionError(e.message)
         except TimeoutError:
             commits_history = None
+        except SourceCodeError as e:
+            commits_history = None
+            server_fetch_error = str(e.message)
+        except Exception as e:
+            commits_history = None
+            server_fetch_error = str(e)
         else:
             try:
-                commits_history = await project.get_commits_history(amount=50)
+                commits_history = await project.get_commits_history(50)
             except SourceCodeError as e:
                 raise a.ActionError(e.message)
 
         result = {
             "current_commit": current_commit,
-            "commits_history": commits_history
+            "commits_history": commits_history,
+            "server_fetch_error": server_fetch_error,
         }
 
         return result
@@ -801,7 +810,12 @@ class ServerCodeController(a.AdminController):
             a.breadcrumbs([], "Server Code")
         ]
         if data["commits_history"] is None:
-            r.append(a.notice("Repository is in progress", "Please wait until repository is updated"))
+            if data["server_fetch_error"]:
+                r.append(a.notice("Failed to update repository",
+                                  "Please check repository settings: {0}".format(data["server_fetch_error"]),
+                                  "danger"))
+            else:
+                r.append(a.notice("Repository is in progress", "Please wait until repository is updated"))
         else:
             methods = {
                 "switch_to_latest_commit": a.method("Update To The Last Commit", "primary", order=1),
