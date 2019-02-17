@@ -1,5 +1,4 @@
 
-from tornado.gen import coroutine
 from tornado.ioloop import IOLoop
 from tornado.gen import Future
 
@@ -9,6 +8,7 @@ from v8py import JSFunction, new, JSPromise, JSException, current_context, JavaS
 import weakref
 import logging
 import traceback
+import asyncio
 
 from anthill.common.options import options
 from anthill.common.internal import InternalError
@@ -168,15 +168,16 @@ def promise_callback(bound, resolve, reject):
 
     try:
         # noinspection PyProtectedMember
-        future = coroutine(bound.method)(*bound.args, handler=handler)
+        coroutine_object = bound.method(*bound.args, handler=handler)
     except BaseException as exc:
         exc.stack = traceback.format_exc()
         reject(exc)
     else:
-        future.bound = bound
-        future.bound_resolve = resolve
-        future.bound_reject = reject
-        IOLoop.current().add_future(future, promise_completion)
+        task = asyncio.ensure_future(coroutine_object)
+        task.bound = bound
+        task.bound_resolve = resolve
+        task.bound_reject = reject
+        task.add_done_callback(promise_completion)
 
 
 class BoundPromise(object):
