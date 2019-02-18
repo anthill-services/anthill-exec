@@ -13,6 +13,7 @@ addons:
 dist: trusty
 sudo: required
 before_install:
+  - sudo apt-key adv --keyserver hkp://pgp.mit.edu:80 --recv-keys 5072E1F5
   - mysql -e 'CREATE DATABASE IF NOT EXISTS test;'
 services:
   - mysql
