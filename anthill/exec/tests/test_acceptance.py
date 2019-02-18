@@ -247,10 +247,10 @@ class ExecAcceptanceTestCase(AcceptanceTestCase):
             "call/" + AcceptanceTestCase.APPLICATION_NAME + "/" +
             AcceptanceTestCase.APPLICATION_VERSION_NAME + "/error_call", {
                 "args": ujson.dumps({
-                    "code": 408,
+                    "code": 535,
                     "message": "Welp"
                 })
-            }, expected_code=408, expected_body="Welp")
+            }, expected_code=535, expected_body="Welp")
 
         await self.post_fail(
             "call/" + AcceptanceTestCase.APPLICATION_NAME + "/" +

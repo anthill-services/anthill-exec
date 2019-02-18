@@ -226,14 +226,11 @@ class FunctionsTestCase(testing.ServerTestCase):
             self.assertEqual(error.code, 400)
             self.assertEqual(error.message, "bad_idea")
 
-            if not re.search("\s+File \"test_api_error.js-[0-9]+\", line 20, in main"
-                             "\s+c\(\);"
-                             "\s+File \"test_api_error\.js-[0-9]+\", line 15, in c"
-                             "\s+b\(\);"
-                             "\s+File \"test_api_error\.js-[0-9]+\", line 10, in b"
-                             "\s+a\(\);"
-                             "\s+File \"test_api_error\.js-[0-9]+\", line 5, in a"
-                             "\s+throw new Error\(400, \"bad_idea\"\);", error.traceback, re.MULTILINE):
+            if not re.search("Error\n"
+                             "\s+at a \(test_api_error\.js:5:23\)\n"
+                             "\s+at b \(test_api_error\.js:10:17\)\n"
+                             "\s+at c \(test_api_error\.js:15:17\)\n"
+                             "\s+at main \(test_api_error\.js:20:17\)", error.traceback, re.MULTILINE):
                 self.fail("Traceback does not match: " + error.traceback)
 
         else:

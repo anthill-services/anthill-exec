@@ -53,7 +53,10 @@ class JavascriptSession(object):
         except JSException as e:
             value = e.value
             if hasattr(value, "code"):
-                raise JavascriptExecutionError(value.code, value.message)
+                if hasattr(value, "stack"):
+                    raise JavascriptExecutionError(value.code, value.message, stack=str(value.stack))
+                else:
+                    raise JavascriptExecutionError(value.code, value.message)
             if hasattr(e, "stack"):
                 raise JavascriptExecutionError(500, str(e), stack=str(e.stack))
             raise JavascriptExecutionError(500, str(e))
@@ -106,7 +109,10 @@ class JavascriptSession(object):
         except JSException as e:
             value = e.value
             if hasattr(value, "code"):
-                raise JavascriptExecutionError(value.code, value.message)
+                if hasattr(value, "stack"):
+                    raise JavascriptExecutionError(value.code, value.message, stack=str(value.stack))
+                else:
+                    raise JavascriptExecutionError(value.code, value.message)
             if hasattr(e, "stack"):
                 raise JavascriptExecutionError(500, str(e), stack=str(e.stack))
             raise JavascriptExecutionError(500, str(e))

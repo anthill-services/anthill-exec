@@ -284,10 +284,11 @@ class CallActionHandler(handler.AuthenticatedHandler):
             if options.debug:
                 logging.error("API Error: \n" + str(e.traceback))
                 self.write(str(e.message) + "\n" + str(e.traceback))
-                self.set_status(e.code, str(e.message))
-                self.finish()
-                return
-            raise HTTPError(e.code, e.message)
+            else:
+                self.write(str(e.message))
+            self.set_status(e.code, str(e.message))
+            self.finish()
+            return
         except NoSuchMethod:
             raise HTTPError(404, "No such method")
         except Exception as e:

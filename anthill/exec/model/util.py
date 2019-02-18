@@ -49,7 +49,10 @@ def process_error(e):
     if isinstance(e, JSException):
         value = e.value
         if hasattr(value, "code"):
-            return JavascriptExecutionError(value.code, value.message)
+            if hasattr(value, "stack"):
+                raise JavascriptExecutionError(value.code, value.message, stack=str(value.stack))
+            else:
+                raise JavascriptExecutionError(value.code, value.message)
         if hasattr(e, "stack"):
             return JavascriptExecutionError(500, str(e), stack=str(e.stack))
         return JavascriptExecutionError(500, str(e))
