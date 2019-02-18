@@ -7,13 +7,13 @@ env:
 addons:
   apt:
     sources:
-      - mysql-5.7-trusty
+      - sourceline: 'deb http://repo.mysql.com/apt/ubuntu/ trusty mysql-5.7'
+        key_url: https://gist.githubusercontent.com/desertkun/75e336c160f408e450e5f01a1ded0123/raw/4320b968b1fcee97d5eac85b30722fbeecd5135c/mysql_pubkey.asc
     packages:
       - mysql-server
 dist: trusty
 sudo: required
 before_install:
-  - sudo apt-key adv --keyserver hkp://pgp.mit.edu:80 --recv-keys 5072E1F5
   - mysql -e 'CREATE DATABASE IF NOT EXISTS test;'
 services:
   - mysql
