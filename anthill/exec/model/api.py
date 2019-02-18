@@ -129,7 +129,7 @@ class StoreAPI(object):
         key = "store:" + str(name)
         cached = handler.get_cache(key)
         if cached:
-            return [cached]
+            return cached
 
         internal = Internal()
 
