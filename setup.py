@@ -1,8 +1,8 @@
 
-from setuptools import setup, find_packages
+from setuptools import setup, find_namespace_packages
 
 DEPENDENCIES = [
-    "anthill-common",
+    "anthill-common>=0.2.4",
     "v8py==0.9.14"
 ]
 
@@ -11,8 +11,7 @@ setup(
     package_data={
       "anthill.exec": ["anthill/exec/sql", "anthill/exec/static"]
     },
-    setup_requires=["pypigit-version"],
-    git_version="0.1.0",
+    version='0.2',
     description='Server-side javascript code execution for Anthill platform',
     author='desertkun',
     license='MIT',
@@ -20,7 +19,7 @@ setup(
     url='https://github.com/anthill-platform/anthill-exec',
     namespace_packages=["anthill"],
     include_package_data=True,
-    packages=find_packages(),
+    packages=find_namespace_packages(include=["anthill.*"]),
     dependency_links=[
         'https://cdn.anthillplatform.org/python/v8py'
     ],
